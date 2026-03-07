@@ -3,9 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
-    "react": "^18.0.0",
-    "react-barcode": "^1.6.1",
-    "react-dom": "^18.0.0"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.15.0",
+    "axios": "^1.5.0",
+    "tailwindcss": "^3.3.0",
+    "qrcode.react": "^1.0.1",
+    "recharts": "^2.8.0",
+    "date-fns": "^2.30.0"
   },
   "devDependencies": {
     "@babel/core": "^7.22.9",
@@ -17,10 +22,15 @@
     "style-loader": "^3.3.3",
     "webpack": "^5.105.2",
     "webpack-cli": "^5.1.4",
-    "webpack-dev-server": "^4.15.1"
+    "webpack-dev-server": "^4.15.1",
+    "tailwindcss": "^3.3.0",
+    "postcss": "^8.4.27",
+    "postcss-loader": "^7.3.3"
   },
   "scripts": {
     "start": "webpack serve --mode development --open",
-    "build": "webpack --mode production"
+    "build": "webpack --mode production",
+    "dev": "webpack serve --mode development"
   }
 }
+

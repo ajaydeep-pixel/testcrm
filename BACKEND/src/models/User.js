@@ -1,11 +1,39 @@
 const mongoose = require('mongoose');
 
 const UserSchema = new mongoose.Schema({
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: true,
+  },
   name: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
+  email: { type: String, required: true },
   passwordHash: { type: String, required: true },
-  role: { type: String, enum: ['admin','staff'], default: 'staff' },
-  createdAt: { type: Date, default: Date.now }
-});
+  role: { type: String, enum: ['owner', 'manager', 'accountant', 'staff'], default: 'staff' },
+  // 2FA (TOTP)
+  totpEnabled: { type: Boolean, default: false },
+  totpSecret: String,
+  backupCodes: [String],
+  // Account status
+  status: { type: String, enum: ['active', 'inactive', 'locked'], default: 'active' },
+  // Device & IP tracking
+  lastLoginAt: Date,
+  lastLoginIp: String,
+  devices: [{
+    deviceId: String,
+    userAgent: String,
+    ipAddress: String,
+    lastUsedAt: Date,
+    isActive: Boolean,
+  }],
+  customPermissions: [String],
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+}, { timestamps: true });
+
+// Indexes
+UserSchema.index({ tenantId: 1, email: 1 }, { unique: true });
+UserSchema.index({ tenantId: 1 });
+UserSchema.index({ status: 1 });
 
 module.exports = mongoose.model('User', UserSchema);

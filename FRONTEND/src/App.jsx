@@ -1,128 +1,69 @@
 
-import React, { useState } from 'react';
-import BillingScreen from './components/BillingScreen';
-import ProductsScreen from './components/ProductsScreen';
-import InventoryScreen from './components/InventoryScreen';
-import InvoicesScreen from './components/InvoicesScreen';
-import BrandsScreen from './components/BrandsScreen';
-import CategoriesScreen from './components/CategoriesScreen';
-import LoginScreen from './components/LoginScreen';
-import styles from './components/BillingScreen.module.css';
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import Login from './pages/Login';
+import Signup from './pages/Signup';
+import Dashboard from './pages/Dashboard';
+import './styles/global.css';
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [activeModule, setActiveModule] = useState('billing');
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [cart, setCart] = useState([]);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const handleProductCreated = () => {
-    setRefreshKey(prev => prev + 1);
-  };
+  useEffect(() => {
+    // Check if user is already logged in
+    const token = localStorage.getItem('token');
+    const user = localStorage.getItem('user');
+    setIsAuthenticated(!!token && !!user);
+    setLoading(false);
+  }, []);
 
-  const handleInvoiceCreated = () => {
-    setRefreshKey(prev => prev + 1);
-    setActiveModule('invoices');
-  };
-
-  const handleResetCart = () => {
-    setCart([]);
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('authUser');
-    setCart([]);
-    setUser(null);
-  };
-
-  const renderModule = () => {
-    if (activeModule === 'products') {
-      return <ProductsScreen refreshKey={refreshKey} />;
-    }
-    if (activeModule === 'inventory') {
-      return <InventoryScreen refreshKey={refreshKey} />;
-    }
-    if (activeModule === 'invoices') {
-      return <InvoicesScreen refreshKey={refreshKey} />;
-    }
-    if (activeModule === 'brands') {
-      return <BrandsScreen refreshKey={refreshKey} onMastersUpdated={handleProductCreated} />;
-    }
-    if (activeModule === 'categories') {
-      return <CategoriesScreen refreshKey={refreshKey} onMastersUpdated={handleProductCreated} />;
-    }
+  if (loading) {
     return (
-      <BillingScreen
-        cart={cart}
-        setCart={setCart}
-        onResetCart={handleResetCart}
-        onProductCreated={handleProductCreated}
-        onInvoiceCreated={handleInvoiceCreated}
-      />
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
     );
-  };
+  }
 
   return (
-    <>
-      {!user ? (
-        <LoginScreen onLogin={setUser} />
-      ) : (
-        <div className={styles.crmShell}>
-          <header className={styles.crmTopbar}>
-            <div className={styles.crmBrand}>Bike Parts CRM</div>
-            <nav className={styles.crmTabs}>
-              <button
-                type="button"
-                className={`${styles.crmTabBtn} ${activeModule === 'billing' ? styles.crmTabActive : ''}`}
-                onClick={() => setActiveModule('billing')}
-              >
-                Billing
-              </button>
-              <button
-                type="button"
-                className={`${styles.crmTabBtn} ${activeModule === 'products' ? styles.crmTabActive : ''}`}
-                onClick={() => setActiveModule('products')}
-              >
-                Products
-              </button>
-              <button
-                type="button"
-                className={`${styles.crmTabBtn} ${activeModule === 'inventory' ? styles.crmTabActive : ''}`}
-                onClick={() => setActiveModule('inventory')}
-              >
-                Inventory
-              </button>
-              <button
-                type="button"
-                className={`${styles.crmTabBtn} ${activeModule === 'invoices' ? styles.crmTabActive : ''}`}
-                onClick={() => setActiveModule('invoices')}
-              >
-                Invoices
-              </button>
-              <button
-                type="button"
-                className={`${styles.crmTabBtn} ${activeModule === 'brands' ? styles.crmTabActive : ''}`}
-                onClick={() => setActiveModule('brands')}
-              >
-                Brands
-              </button>
-              <button
-                type="button"
-                className={`${styles.crmTabBtn} ${activeModule === 'categories' ? styles.crmTabActive : ''}`}
-                onClick={() => setActiveModule('categories')}
-              >
-                Categories
-              </button>
-            </nav>
-            <button type="button" className={styles.crmLogoutBtn} onClick={handleLogout}>
-              Logout
-            </button>
-          </header>
-          <main>{renderModule()}</main>
-        </div>
-      )}
-    </>
+    <Router>
+      <Routes>
+        {/* Public Routes */}
+        <Route
+          path="/login"
+          element={
+            isAuthenticated ? (
+              <Navigate to="/dashboard" replace />
+            ) : (
+              <Login onLoginSuccess={() => setIsAuthenticated(true)} />
+            )
+          }
+        />
+        <Route
+          path="/signup"
+          element={
+            isAuthenticated ? (
+              <Navigate to="/dashboard" replace />
+            ) : (
+              <Signup onSignupSuccess={() => setIsAuthenticated(true)} />
+            )
+          }
+        />
+
+        {/* Protected Routes */}
+        <Route
+          path="/dashboard"
+          element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" replace />}
+        />
+
+        {/* Catch-all */}
+        <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />} />
+      </Routes>
+    </Router>
   );
 }
 
