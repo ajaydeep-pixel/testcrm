@@ -1,10 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { authAPI, billingAPI } from '../services/api';
 
 export default function Signup({ onSignupSuccess }) {
-  const [step, setStep] = useState('company'); // 'company', 'branch', 'pricing', 'review'
+  const [step, setStep] = useState('company');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [branding, setBranding] = useState({ appName: '', tagline: '' });
+
+  useEffect(() => {
+    fetch('http://localhost:4000/api/branding')
+      .then(r => r.json())
+      .then(data => setBranding(data))
+      .catch(() => setBranding({ appName: 'BikeFlow', tagline: 'Set up your business in minutes' }));
+  }, []);
 
   // Company info
   const [companyName, setCompanyName] = useState('');
@@ -73,10 +81,11 @@ export default function Signup({ onSignupSuccess }) {
       };
 
       const response = await authAPI.signup(signupData);
-      const { token, user } = response.data;
+      const { token, user, tenant } = response.data;
 
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(user));
+      if (tenant) localStorage.setItem('tenant', JSON.stringify(tenant));
 
       // If they selected a paid plan, redirect to billing setup
       if (selectedPlan !== 'trial') {
@@ -96,8 +105,8 @@ export default function Signup({ onSignupSuccess }) {
     <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center px-4 py-8">
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-8">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Welcome to BikeFlow</h1>
-          <p className="text-gray-600 mt-2">Set up your business in minutes</p>
+          <h1 className="text-3xl font-bold text-gray-900">Welcome to {branding.appName || 'BikeFlow'}</h1>
+          <p className="text-gray-600 mt-2">{branding.tagline || 'Set up your business in minutes'}</p>
         </div>
 
         {/* Progress Steps */}

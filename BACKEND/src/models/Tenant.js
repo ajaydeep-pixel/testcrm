@@ -19,7 +19,6 @@ const tenantSchema = new mongoose.Schema(
     },
     plan: {
       type: String,
-      enum: ['trial', 'basic', 'pro', 'enterprise'],
       default: 'trial',
     },
     trialStartAt: {
@@ -70,8 +69,12 @@ const tenantSchema = new mongoose.Schema(
     stripePlanId: String,
     subscription: {
       id: String,
-      status: String, // 'active', 'past_due', 'canceled', 'unpaid'
+      status: { type: String, enum: [null, 'active', 'past_due', 'canceled', 'canceling', 'unpaid', 'incomplete', 'trialing'], default: null },
+      gateway: { type: String, enum: [null, 'stripe', 'razorpay'], default: null },
+      planSlug: String,
+      currentPeriodStart: Date,
       currentPeriodEnd: Date,
+      cancelAtPeriodEnd: { type: Boolean, default: false },
       canceledAt: Date,
     },
     usage: {

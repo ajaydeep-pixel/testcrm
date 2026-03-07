@@ -3,12 +3,21 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const connectDB = require('./src/config/db');
+const seedDatabase = require('./src/scripts/seed');
 
 const app = express();
 app.use(cors());
+
+// Stripe webhook needs raw body — MUST be registered before express.json()
+const { stripeWebhook, razorpayWebhook } = require('./src/controllers/billingController');
+app.post('/api/billing/webhook/stripe', express.raw({ type: 'application/json' }), stripeWebhook);
+app.post('/api/billing/webhook/razorpay', express.json(), razorpayWebhook);
+
 app.use(express.json());
 
-connectDB();
+connectDB().then(() => {
+  seedDatabase().catch(err => console.error('Seeding failed:', err));
+});
 
 // Middleware
 const { verifyToken } = require('./src/middleware/authMiddleware');
@@ -21,6 +30,17 @@ app.use('/api/', rateLimitIP(100, 3600)); // 100 req per IP per hour
 
 // Routes (public)
 app.use('/api/auth', require('./src/routes/authRoutes'));
+
+// Public branding endpoint (no auth)
+const { getPublicBranding } = require('./src/controllers/adminController');
+app.get('/api/branding', getPublicBranding);
+
+// Public plans endpoint (no auth)
+const { getPlans } = require('./src/controllers/billingController');
+app.get('/api/billing/plans', getPlans);
+
+// Superadmin routes (only verifyToken + superadmin check, no tenant middleware)
+app.use('/api/admin', require('./src/routes/adminRoutes'));
 
 // Apply rate limiting + usage metering to all authenticated routes
 app.use('/api/billing', verifyToken, extractTenant, verifyTenantAccess, rateLimitTenant(), recordUsage, checkUsageAndWarn, require('./src/routes/billingRoutes'));

@@ -1,14 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api';
 
 export default function Login({ onLoginSuccess }) {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [totp, setTotp] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [step, setStep] = useState('password'); // 'password' or 'totp'
+  const [step, setStep] = useState('password');
   const [sessionData, setSessionData] = useState(null);
+  const [branding, setBranding] = useState({ appName: '', tagline: '' });
+
+  useEffect(() => {
+    fetch('http://localhost:4000/api/branding')
+      .then(r => r.json())
+      .then(data => setBranding(data))
+      .catch(() => setBranding({ appName: 'BikeFlow', tagline: 'Cloud POS for medium businesses' }));
+  }, []);
+
+  const handleLoginSuccess = (token, user) => {
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(user));
+    onLoginSuccess?.(user.role);
+    // Redirect superadmin to admin dashboard
+    if (user.role === 'superadmin') {
+      navigate('/admin');
+    } else {
+      navigate('/dashboard');
+    }
+  };
 
   const handlePasswordSubmit = async (e) => {
     e.preventDefault();
@@ -23,10 +45,7 @@ export default function Login({ onLoginSuccess }) {
         setStep('totp');
         setSessionData({ sessionId });
       } else {
-        // Login successful without 2FA
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(user));
-        onLoginSuccess?.();
+        handleLoginSuccess(token, user);
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Login failed. Please try again.');
@@ -44,9 +63,7 @@ export default function Login({ onLoginSuccess }) {
       const response = await authAPI.verify2FA(totp);
       const { token, user } = response.data;
 
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      onLoginSuccess?.();
+      handleLoginSuccess(token, user);
     } catch (err) {
       setError(err.response?.data?.message || 'TOTP verification failed.');
     } finally {
@@ -58,8 +75,8 @@ export default function Login({ onLoginSuccess }) {
     <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center px-4">
       <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-8">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">BikeFlow</h1>
-          <p className="text-gray-600 mt-2">Cloud POS for medium businesses</p>
+          <h1 className="text-3xl font-bold text-gray-900">{branding.appName || 'BikeFlow'}</h1>
+          <p className="text-gray-600 mt-2">{branding.tagline || 'Cloud POS for medium businesses'}</p>
         </div>
 
         {error && (

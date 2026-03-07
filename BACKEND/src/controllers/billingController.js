@@ -1,233 +1,164 @@
 /**
  * Billing Controller
- * Handles subscription, invoicing, and payment operations
+ * Subscription management with Stripe Checkout Sessions
  */
 
 const BillingService = require('../services/BillingService');
 const Tenant = require('../models/Tenant');
 const Invoice = require('../models/Invoice');
+const Plan = require('../models/Plan');
+
+/**
+ * GET /api/billing/plans (public)
+ */
+exports.getPlans = async (req, res) => {
+  try {
+    const plans = await Plan.find({ isActive: true }).sort({ sortOrder: 1 });
+    res.json({ plans });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to get plans', error: err.message });
+  }
+};
 
 /**
  * GET /api/billing/subscription
- * Get current subscription status for tenant
+ * Full subscription status for the current tenant
  */
 exports.getSubscriptionStatus = async (req, res) => {
   try {
-    const tenantId = req.tenantId;
-    const status = await BillingService.getSubscriptionStatus(tenantId);
+    const status = await BillingService.getSubscriptionStatus(req.tenantId);
     res.json(status);
   } catch (err) {
-    console.error('Error getting subscription status:', err);
     res.status(500).json({ message: 'Failed to get subscription status', error: err.message });
   }
 };
 
 /**
- * POST /api/billing/subscribe
- * Create a subscription to a plan
- * Body: { planName, gateway: 'stripe' | 'razorpay' }
+ * POST /api/billing/create-checkout-session
+ * Body: { planSlug }
+ * Creates a Stripe Checkout Session and returns the URL
  */
-exports.createSubscription = async (req, res) => {
+exports.createCheckoutSession = async (req, res) => {
   try {
-    const { planName, gateway = 'stripe' } = req.body;
-    const tenantId = req.tenantId;
+    const { planSlug } = req.body;
+    if (!planSlug) return res.status(400).json({ message: 'planSlug is required' });
 
-    if (!planName) {
-      return res.status(400).json({ message: 'planName required' });
-    }
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    const successUrl = `${clientUrl}/checkout/success`;
+    const cancelUrl = `${clientUrl}/checkout/cancel`;
 
-    let subscription;
-    if (gateway === 'stripe') {
-      subscription = await BillingService.createStripeSubscription(tenantId, planName);
-    } else if (gateway === 'razorpay') {
-      subscription = await BillingService.createRazorpayOrder(tenantId, planName);
-    } else {
-      return res.status(400).json({ message: 'Invalid payment gateway' });
-    }
-
-    res.json({
-      message: 'Subscription initiated',
-      subscription,
-      gateway,
-    });
+    const result = await BillingService.createCheckoutSession(req.tenantId, planSlug, successUrl, cancelUrl);
+    res.json(result);
   } catch (err) {
-    console.error('Error creating subscription:', err);
-    res.status(500).json({ message: 'Failed to create subscription', error: err.message });
+    console.error('Checkout session error:', err.message);
+    res.status(400).json({ message: err.message });
   }
 };
 
 /**
- * POST /api/billing/change-plan
- * Upgrade or downgrade to a different plan
- * Body: { newPlanName }
+ * GET /api/billing/checkout-status?session_id=xxx
+ * Verify a completed checkout session
  */
-exports.changePlan = async (req, res) => {
+exports.getCheckoutStatus = async (req, res) => {
   try {
-    const { newPlanName } = req.body;
-    const tenantId = req.tenantId;
+    const { session_id } = req.query;
+    if (!session_id) return res.status(400).json({ message: 'session_id required' });
 
-    if (!newPlanName) {
-      return res.status(400).json({ message: 'newPlanName required' });
-    }
-
-    const updatedSubscription = await BillingService.changePlan(tenantId, newPlanName);
-
-    const tenant = await Tenant.findById(tenantId);
-    res.json({
-      message: 'Plan changed successfully',
-      plan: tenant.plan,
-      subscription: updatedSubscription,
-    });
+    const result = await BillingService.verifyCheckoutSession(session_id);
+    res.json(result);
   } catch (err) {
-    console.error('Error changing plan:', err);
-    res.status(500).json({ message: 'Failed to change plan', error: err.message });
+    res.status(500).json({ message: 'Failed to verify checkout', error: err.message });
   }
 };
 
 /**
  * POST /api/billing/cancel
- * Cancel current subscription
+ * Body: { immediate?: boolean }
+ * Cancel the current subscription (at period end by default)
  */
 exports.cancelSubscription = async (req, res) => {
   try {
-    const tenantId = req.tenantId;
-    const result = await BillingService.cancelSubscription(tenantId);
+    const { immediate = false } = req.body || {};
+    const result = await BillingService.cancelSubscription(req.tenantId, immediate);
     res.json(result);
   } catch (err) {
-    console.error('Error canceling subscription:', err);
-    res.status(500).json({ message: 'Failed to cancel subscription', error: err.message });
+    console.error('Cancel subscription error:', err.message);
+    res.status(400).json({ message: err.message });
   }
 };
 
 /**
- * GET /api/billing/invoices
- * List all invoices for tenant
- * Query: { status?, limit = 20, page = 1 }
+ * POST /api/billing/change-plan
+ * Body: { newPlanName }
+ * Only for switching between free plans (no payment required)
+ * Paid plans must go through checkout flow
  */
-exports.listInvoices = async (req, res) => {
+exports.changePlan = async (req, res) => {
   try {
-    const tenantId = req.tenantId;
-    const { status, limit = 20, page = 1 } = req.query;
+    const { newPlanName } = req.body;
+    if (!newPlanName) return res.status(400).json({ message: 'newPlanName required' });
 
-    const query = { tenantId };
-    if (status) {
-      query.status = status;
+    const tenant = await Tenant.findById(req.tenantId);
+    if (!tenant) return res.status(404).json({ message: 'Tenant not found' });
+
+    const plan = await Plan.findOne({ slug: newPlanName, isActive: true });
+    if (!plan) return res.status(400).json({ message: 'Invalid plan' });
+
+    // Paid plans require the checkout flow
+    if (plan.price > 0) {
+      return res.status(400).json({
+        message: 'Paid plans require checkout. Use the Subscribe button to go through payment.',
+        requiresCheckout: true,
+      });
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const invoices = await Invoice.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    const total = await Invoice.countDocuments(query);
-
-    res.json({
-      invoices,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / parseInt(limit)),
-      },
-    });
-  } catch (err) {
-    console.error('Error listing invoices:', err);
-    res.status(500).json({ message: 'Failed to list invoices', error: err.message });
-  }
-};
-
-/**
- * GET /api/billing/invoices/:invoiceId
- * Get specific invoice
- */
-exports.getInvoice = async (req, res) => {
-  try {
-    const { invoiceId } = req.params;
-    const tenantId = req.tenantId;
-
-    const invoice = await Invoice.findOne({ _id: invoiceId, tenantId });
-    if (!invoice) {
-      return res.status(404).json({ message: 'Invoice not found' });
+    // Cannot switch to free plan if they have an active subscription
+    if (tenant.subscription?.status === 'active') {
+      return res.status(400).json({ message: 'Cancel your current subscription before switching plans' });
     }
 
-    res.json(invoice);
+    tenant.plan = newPlanName;
+    await tenant.save();
+    res.json({ message: 'Plan changed successfully', plan: tenant.plan });
   } catch (err) {
-    console.error('Error getting invoice:', err);
-    res.status(500).json({ message: 'Failed to get invoice', error: err.message });
-  }
-};
-
-/**
- * POST /api/billing/usage
- * Record usage metric for tenant
- * Body: { metric: 'invoiceCount' | 'apiCallsThisMonth' | 'activeUsers' | 'storageMB', count }
- */
-exports.recordUsage = async (req, res) => {
-  try {
-    const { metric, count = 1 } = req.body;
-    const tenantId = req.tenantId;
-
-    if (!metric) {
-      return res.status(400).json({ message: 'metric required' });
-    }
-
-    const usage = await BillingService.recordUsage(tenantId, metric, parseInt(count));
-    res.json({ message: 'Usage recorded', usage });
-  } catch (err) {
-    console.error('Error recording usage:', err);
-    res.status(500).json({ message: 'Failed to record usage', error: err.message });
-  }
-};
-
-/**
- * GET /api/billing/usage
- * Get current usage and check limits
- */
-exports.checkUsageLimits = async (req, res) => {
-  try {
-    const tenantId = req.tenantId;
-    const limits = await BillingService.checkUsageLimits(tenantId);
-    res.json(limits);
-  } catch (err) {
-    console.error('Error checking usage limits:', err);
-    res.status(500).json({ message: 'Failed to check usage limits', error: err.message });
+    res.status(500).json({ message: 'Failed to change plan', error: err.message });
   }
 };
 
 /**
  * POST /api/billing/webhook/stripe
- * Handle Stripe webhook events
- * Header: stripe-signature
- * Body: raw event JSON
+ * Stripe webhook handler (raw body, no auth, verified by signature)
  */
 exports.stripeWebhook = async (req, res) => {
   try {
+    let event;
     const sig = req.headers['stripe-signature'];
-    if (!sig) {
-      return res.status(400).json({ message: 'Missing stripe-signature header' });
-    }
 
-    // Verify and construct event (in production, use Stripe's library)
-    const event = JSON.parse(req.body);
+    if (BillingService.stripeWebhookSecret && sig && BillingService.stripe) {
+      event = BillingService.stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        BillingService.stripeWebhookSecret
+      );
+    } else {
+      // Dev mode: parse body directly
+      event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    }
 
     await BillingService.handleStripeWebhook(event);
     res.json({ received: true });
   } catch (err) {
-    console.error('Error processing Stripe webhook:', err);
+    console.error('Stripe webhook error:', err.message);
     res.status(400).json({ message: 'Webhook error', error: err.message });
   }
 };
 
 /**
  * POST /api/billing/webhook/razorpay
- * Handle Razorpay webhook events
- * Body: { orderId, paymentId, signature }
  */
 exports.razorpayWebhook = async (req, res) => {
   try {
     const { orderId, paymentId, signature } = req.body;
-
     if (!orderId || !paymentId || !signature) {
       return res.status(400).json({ message: 'Missing required webhook fields' });
     }
@@ -237,26 +168,71 @@ exports.razorpayWebhook = async (req, res) => {
       return res.status(400).json({ message: 'Invalid payment signature' });
     }
 
-    // Mark as paid in local DB
     console.log('Razorpay payment verified:', paymentId);
-
     res.json({ received: true });
   } catch (err) {
-    console.error('Error processing Razorpay webhook:', err);
+    console.error('Razorpay webhook error:', err.message);
     res.status(400).json({ message: 'Webhook error', error: err.message });
   }
 };
 
 /**
- * GET /api/billing/plans
- * Get available plans and pricing
+ * GET /api/billing/invoices
  */
-exports.getPlans = async (req, res) => {
+exports.listInvoices = async (req, res) => {
   try {
-    const plans = BillingService.PLANS;
-    res.json({ plans });
+    const { status, limit = 20, page = 1 } = req.query;
+    const query = { tenantId: req.tenantId };
+    if (status) query.status = status;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const invoices = await Invoice.find(query).sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit));
+    const total = await Invoice.countDocuments(query);
+
+    res.json({
+      invoices,
+      pagination: { total, page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / parseInt(limit)) },
+    });
   } catch (err) {
-    console.error('Error getting plans:', err);
-    res.status(500).json({ message: 'Failed to get plans', error: err.message });
+    res.status(500).json({ message: 'Failed to list invoices', error: err.message });
+  }
+};
+
+/**
+ * GET /api/billing/invoices/:invoiceId
+ */
+exports.getInvoice = async (req, res) => {
+  try {
+    const invoice = await Invoice.findOne({ _id: req.params.invoiceId, tenantId: req.tenantId });
+    if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
+    res.json(invoice);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to get invoice', error: err.message });
+  }
+};
+
+/**
+ * POST /api/billing/usage
+ */
+exports.recordUsage = async (req, res) => {
+  try {
+    const { metric, count = 1 } = req.body;
+    if (!metric) return res.status(400).json({ message: 'metric required' });
+    const usage = await BillingService.recordUsage(req.tenantId, metric, parseInt(count));
+    res.json({ message: 'Usage recorded', usage });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to record usage', error: err.message });
+  }
+};
+
+/**
+ * GET /api/billing/usage
+ */
+exports.checkUsageLimits = async (req, res) => {
+  try {
+    const limits = await BillingService.checkUsageLimits(req.tenantId);
+    res.json(limits);
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to check usage limits', error: err.message });
   }
 };

@@ -5,6 +5,11 @@ exports.verifyToken = (req, res, next) => {
   if (!token) return res.status(401).json({ message: 'No token provided' });
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Superadmin doesn't need tenantId
+    if (decoded.role === 'superadmin') {
+      req.user = decoded;
+      return next();
+    }
     // Ensure token contains tenantId and userId
     if (!decoded.tenantId || !decoded.userId) {
       return res.status(403).json({ message: 'Invalid token: missing tenantId or userId' });

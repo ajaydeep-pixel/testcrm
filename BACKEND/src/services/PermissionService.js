@@ -4,6 +4,21 @@
  */
 
 const ROLE_PERMISSIONS = {
+  superadmin: {
+    // Full platform access – bypasses tenant scoping
+    tenants: ['create', 'read', 'update', 'delete'],
+    users: ['create', 'read', 'update', 'delete'],
+    products: ['create', 'read', 'update', 'delete'],
+    inventory: ['create', 'read', 'update', 'delete'],
+    sales: ['create', 'read', 'update', 'delete'],
+    purchases: ['create', 'read', 'update', 'delete'],
+    suppliers: ['create', 'read', 'update', 'delete'],
+    customers: ['create', 'read', 'update', 'delete'],
+    reports: ['read'],
+    billing: ['read', 'update'],
+    settings: ['read', 'update'],
+    audit: ['read'],
+  },
   owner: {
     users: ['create', 'read', 'update', 'delete'],
     branches: ['create', 'read', 'update', 'delete'],

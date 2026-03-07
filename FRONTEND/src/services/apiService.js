@@ -59,8 +59,16 @@ const request = async (endpoint, options = {}) => {
 };
 
 export const apiService = {
-  get: (endpoint) => request(endpoint, { method: 'GET' }),
+  get: (endpoint, params) => {
+    let url = endpoint;
+    if (params && typeof params === 'object') {
+      const qs = new URLSearchParams(params).toString();
+      if (qs) url = `${endpoint}?${qs}`;
+    }
+    return request(url, { method: 'GET' });
+  },
   post: (endpoint, body) => request(endpoint, { method: 'POST', body: JSON.stringify(body) }),
   put: (endpoint, body) => request(endpoint, { method: 'PUT', body: JSON.stringify(body) }),
+  patch: (endpoint, body) => request(endpoint, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: (endpoint) => request(endpoint, { method: 'DELETE' })
 };

@@ -1,20 +1,33 @@
-
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { ToastProvider } from './components/Toast';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
+import CheckoutPage from './pages/CheckoutPage';
+import CheckoutSuccess from './pages/CheckoutSuccess';
+import CheckoutCancel from './pages/CheckoutCancel';
+import SuperadminDashboard from './components/SuperadminDashboard';
 import './styles/global.css';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userRole, setUserRole] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // Check if user is already logged in
     const token = localStorage.getItem('token');
     const user = localStorage.getItem('user');
-    setIsAuthenticated(!!token && !!user);
+    if (token && user) {
+      setIsAuthenticated(true);
+      try {
+        const parsed = JSON.parse(user);
+        setUserRole(parsed.role);
+      } catch (e) {
+        setUserRole(null);
+      }
+    }
     setLoading(false);
   }, []);
 
@@ -30,6 +43,7 @@ function App() {
   }
 
   return (
+    <ToastProvider>
     <Router>
       <Routes>
         {/* Public Routes */}
@@ -37,9 +51,9 @@ function App() {
           path="/login"
           element={
             isAuthenticated ? (
-              <Navigate to="/dashboard" replace />
+              <Navigate to={userRole === 'superadmin' ? '/admin' : '/dashboard'} replace />
             ) : (
-              <Login onLoginSuccess={() => setIsAuthenticated(true)} />
+              <Login onLoginSuccess={(role) => { setIsAuthenticated(true); setUserRole(role); }} />
             )
           }
         />
@@ -49,7 +63,7 @@ function App() {
             isAuthenticated ? (
               <Navigate to="/dashboard" replace />
             ) : (
-              <Signup onSignupSuccess={() => setIsAuthenticated(true)} />
+              <Signup onSignupSuccess={() => { setIsAuthenticated(true); setUserRole('owner'); }} />
             )
           }
         />
@@ -57,13 +71,50 @@ function App() {
         {/* Protected Routes */}
         <Route
           path="/dashboard"
-          element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" replace />}
+          element={
+            !isAuthenticated ? <Navigate to="/login" replace /> :
+            userRole === 'superadmin' ? <Navigate to="/admin" replace /> :
+            <Dashboard />
+          }
+        />
+        <Route
+          path="/admin/*"
+          element={
+            isAuthenticated && userRole === 'superadmin' ? (
+              <SuperadminDashboard />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+
+        {/* Checkout Routes */}
+        <Route
+          path="/checkout/success"
+          element={!isAuthenticated ? <Navigate to="/login" replace /> : <CheckoutSuccess />}
+        />
+        <Route
+          path="/checkout/cancel"
+          element={!isAuthenticated ? <Navigate to="/login" replace /> : <CheckoutCancel />}
+        />
+        <Route
+          path="/checkout/:planSlug"
+          element={!isAuthenticated ? <Navigate to="/login" replace /> : <CheckoutPage />}
         />
 
         {/* Catch-all */}
-        <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />} />
+        <Route
+          path="/"
+          element={
+            <Navigate
+              to={isAuthenticated ? (userRole === 'superadmin' ? '/admin' : '/dashboard') : '/login'}
+              replace
+            />
+          }
+        />
       </Routes>
     </Router>
+    </ToastProvider>
   );
 }
 

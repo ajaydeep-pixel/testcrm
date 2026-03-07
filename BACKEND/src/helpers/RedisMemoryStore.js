@@ -18,6 +18,27 @@ class RedisMemoryStore {
     return 'OK';
   }
 
+  async setEx(key, seconds, value) {
+    this.store.set(key, value);
+    this.expiries.set(key, Date.now() + seconds * 1000);
+    return 'OK';
+  }
+
+  async sAdd(key, ...members) {
+    if (!this.store.has(key)) {
+      this.store.set(key, new Set());
+    }
+    const set = this.store.get(key);
+    const flat = members.flat();
+    flat.forEach(m => set.add(m));
+    return flat.length;
+  }
+
+  async sMembers(key) {
+    if (!this.store.has(key)) return [];
+    return [...this.store.get(key)];
+  }
+
   async get(key) {
     if (this.isExpired(key)) {
       this.store.delete(key);
@@ -61,15 +82,19 @@ class RedisMemoryStore {
   }
 
   async zAdd(key, members) {
-    // members is array of { score, member }
+    // Handle both single object { score, member } and array [{ score, member }, ...]
     if (!this.store.has(key)) {
       this.store.set(key, new Map());
     }
     const zset = this.store.get(key);
-    members.forEach(({ score, member }) => {
+    
+    // Normalize to array
+    const memberArray = Array.isArray(members) ? members : [members];
+    
+    memberArray.forEach(({ score, member }) => {
       zset.set(member, score);
     });
-    return members.length;
+    return memberArray.length;
   }
 
   async zRemRangeByScore(key, min, max) {

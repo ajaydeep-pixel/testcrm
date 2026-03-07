@@ -4,12 +4,12 @@ const UserSchema = new mongoose.Schema({
   tenantId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Tenant',
-    required: true,
+    required: function() { return this.role !== 'superadmin'; },
   },
   name: { type: String, required: true },
   email: { type: String, required: true },
   passwordHash: { type: String, required: true },
-  role: { type: String, enum: ['owner', 'manager', 'accountant', 'staff'], default: 'staff' },
+  role: { type: String, enum: ['superadmin', 'owner', 'manager', 'accountant', 'staff'], default: 'staff' },
   // 2FA (TOTP)
   totpEnabled: { type: Boolean, default: false },
   totpSecret: String,

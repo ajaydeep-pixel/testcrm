@@ -1,5 +1,6 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const webpack = require('webpack');
 
 module.exports = {
   entry: './src/index.js',
@@ -8,6 +9,7 @@ module.exports = {
     filename: '[name].[contenthash].js',
     chunkFilename: '[name].[contenthash].js',
     clean: true,
+    publicPath: '/',
   },
   mode: 'development',
   devtool: 'source-map',
@@ -53,16 +55,27 @@ module.exports = {
     extensions: ['.js', '.jsx'],
     alias: {
       '@': path.resolve(__dirname, 'src')
+    },
+    fallback: {
+      'process/browser': require.resolve('process/browser'),
+      'buffer': require.resolve('buffer'),
     }
   },
   plugins: [
+    new webpack.DefinePlugin({
+      'process.env.REACT_APP_API_URL': JSON.stringify(process.env.REACT_APP_API_URL || 'http://localhost:4000/api')
+    }),
+    new webpack.ProvidePlugin({
+      process: 'process/browser',
+      Buffer: ['buffer', 'Buffer'],
+    }),
     new HtmlWebpackPlugin({
       template: './public/index.html'
     })
   ],
   devServer: {
     static: {
-      directory: path.join(__dirname, 'public')
+      directory: path.join(__dirname, 'dist')
     },
     port: 3000,
     historyApiFallback: true,

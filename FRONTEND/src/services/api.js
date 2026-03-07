@@ -45,17 +45,17 @@ export const authAPI = {
 
 // Billing API
 export const billingAPI = {
-  getSubscriptionStatus: () => api.get('/billing/subscription'),
   getPlans: () => api.get('/billing/plans'),
-  createSubscription: (planName, gateway = 'stripe') => 
-    api.post('/billing/subscription', { planName, gateway }),
-  changePlan: (newPlanName) => api.post('/billing/subscription/change-plan', { newPlanName }),
-  cancelSubscription: () => api.delete('/billing/subscription'),
-  listInvoices: (page = 1, limit = 20) => 
+  getSubscriptionStatus: () => api.get('/billing/subscription'),
+  createCheckoutSession: (planSlug) => api.post('/billing/create-checkout-session', { planSlug }),
+  getCheckoutStatus: (sessionId) => api.get('/billing/checkout-status', { params: { session_id: sessionId } }),
+  changePlan: (newPlanName) => api.post('/billing/change-plan', { newPlanName }),
+  cancelSubscription: (immediate = false) => api.post('/billing/cancel', { immediate }),
+  listInvoices: (page = 1, limit = 20) =>
     api.get('/billing/invoices', { params: { page, limit } }),
   getInvoice: (invoiceId) => api.get(`/billing/invoices/${invoiceId}`),
-  checkUsageLimits: () => api.get('/billing/usage/check'),
-  recordUsage: (metric, count) => api.post('/billing/usage/record', { metric, count }),
+  checkUsageLimits: () => api.get('/billing/usage'),
+  recordUsage: (metric, count) => api.post('/billing/usage', { metric, count }),
 };
 
 // Usage & Rate-limiting API

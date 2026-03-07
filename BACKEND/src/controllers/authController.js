@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Tenant = require('../models/Tenant');
 const bcrypt = require('bcryptjs');
+const mongoose = require('mongoose');
 const AuthService = require('../services/AuthService');
 const SessionService = require('../services/SessionService');
 
@@ -12,8 +13,13 @@ exports.signupTenant = async (req, res) => {
   try {
     const { companyName, email, password, branch, timezone = 'UTC', gst_enabled = false, gst_number } = req.body;
 
+    // Normalize branch — frontend may send string or object { name, timezone, currency }
+    const branchName = typeof branch === 'object' ? branch.name : branch;
+    const branchTimezone = (typeof branch === 'object' && branch.timezone) || timezone;
+    const branchCurrency = (typeof branch === 'object' && branch.currency) || 'USD';
+
     // Validate input
-    if (!companyName || !email || !password || !branch) {
+    if (!companyName || !email || !password || !branchName) {
       return res.status(400).json({ message: 'Missing required fields: companyName, email, password, branch' });
     }
 
@@ -25,6 +31,7 @@ exports.signupTenant = async (req, res) => {
 
     // Create Tenant (14-day trial)
     const tenant = new Tenant({
+      _id: new mongoose.Types.ObjectId(),
       name: companyName,
       email,
       status: 'active',
@@ -33,14 +40,14 @@ exports.signupTenant = async (req, res) => {
       trialEndAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
       branches: [
         {
-          _id: require('mongoose').Types.ObjectId(),
-          name: branch,
-          timezone,
+          _id: new mongoose.Types.ObjectId(),
+          name: branchName,
+          timezone: branchTimezone,
         },
       ],
       settings: {
-        timezone,
-        currency: 'USD',
+        timezone: branchTimezone,
+        currency: branchCurrency,
         gst_enabled,
         gst_number,
       },
@@ -142,26 +149,30 @@ exports.login = async (req, res) => {
       }
     }
 
-    // Check tenant status
-    const tenant = await Tenant.findById(user.tenantId);
-    if (!tenant || tenant.status === 'suspended') {
-      return res.status(403).json({ message: 'Tenant account suspended' });
-    }
+    // Superadmin bypasses tenant checks
+    if (user.role !== 'superadmin') {
+      // Check tenant status
+      const tenant = await Tenant.findById(user.tenantId);
+      if (!tenant || tenant.status === 'suspended') {
+        return res.status(403).json({ message: 'Tenant account suspended' });
+      }
 
-    if (tenant.plan === 'trial') {
-      const trialExpiry = new Date(tenant.trialEndAt);
-      if (new Date() > trialExpiry) {
-        return res.status(403).json({ message: 'Trial expired. Please upgrade to a paid plan.' });
+      if (tenant.plan === 'trial') {
+        const trialExpiry = new Date(tenant.trialEndAt);
+        if (new Date() > trialExpiry) {
+          return res.status(403).json({ message: 'Trial expired. Please upgrade to a paid plan.' });
+        }
       }
     }
 
     // Issue JWT + create session
-    const token = AuthService.issueToken(user._id.toString(), user.tenantId.toString(), user.role);
+    const tenantIdStr = user.tenantId ? user.tenantId.toString() : null;
+    const token = AuthService.issueToken(user._id.toString(), tenantIdStr, user.role);
     const deviceInfo = {
       userAgent: req.headers['user-agent'] || 'unknown',
       ipAddress: req.ip || '0.0.0.0',
     };
-    const sessionId = await SessionService.createSession(user._id.toString(), user.tenantId.toString(), deviceInfo);
+    const sessionId = await SessionService.createSession(user._id.toString(), tenantIdStr, deviceInfo);
 
     // Update last login
     user.lastLoginAt = new Date();

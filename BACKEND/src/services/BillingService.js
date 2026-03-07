@@ -1,19 +1,20 @@
 /**
  * Billing Service
- * Handles subscription management, invoicing, and payment processing
- * Supports multiple gateways: Stripe (global) and Razorpay (India)
+ * Handles subscription management via Stripe Checkout Sessions
+ * Supports Stripe (global) and Razorpay (India)
  */
 
 const Stripe = require('stripe');
 const Tenant = require('../models/Tenant');
+const Plan = require('../models/Plan');
 
 class BillingService {
   constructor() {
-    // Initialize Stripe
-    this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    if (process.env.STRIPE_SECRET_KEY) {
+      this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    }
     this.stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
-    // Razorpay (initialize if credentials provided)
     if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
       const Razorpay = require('razorpay');
       this.razorpay = new Razorpay({
@@ -23,300 +24,404 @@ class BillingService {
     }
   }
 
-  /**
-   * SUBSCRIPTION PRICING
-   */
-  PLANS = {
-    trial: { name: 'trial', price: 0, currency: 'usd', interval: null, description: '14-day free trial' },
-    basic: { name: 'basic', price: 2999, currency: 'usd', interval: 'month', description: 'Basic Plan - $29.99/month' },
-    pro: { name: 'pro', price: 7999, currency: 'usd', interval: 'month', description: 'Pro Plan - $79.99/month' },
-    enterprise: { name: 'enterprise', price: 0, currency: 'usd', interval: null, description: 'Enterprise - Custom pricing' },
-  };
-
-  /**
-   * Create or retrieve Stripe customer
-   */
-  async getOrCreateStripeCustomer(tenant) {
-    try {
-      if (tenant.stripeCustomerId) {
-        return await this.stripe.customers.retrieve(tenant.stripeCustomerId);
-      }
-
-      // Create new customer
-      const customer = await this.stripe.customers.create({
-        email: tenant.email,
-        name: tenant.name,
-        metadata: {
-          tenantId: tenant._id.toString(),
-        },
-      });
-
-      // Save customer ID to tenant
-      tenant.stripeCustomerId = customer.id;
-      await tenant.save();
-
-      return customer;
-    } catch (err) {
-      console.error('Error managing Stripe customer:', err);
-      throw err;
-    }
+  get isStripeConfigured() {
+    return !!this.stripe;
   }
 
-  /**
-   * Create subscription in Stripe
-   */
-  async createStripeSubscription(tenantId, planName) {
-    try {
-      const tenant = await Tenant.findById(tenantId);
-      if (!tenant) throw new Error('Tenant not found');
+  // ─── STRIPE CUSTOMER ───────────────────────────────────
 
-      const plan = this.PLANS[planName];
-      if (!plan) throw new Error('Invalid plan');
+  async getOrCreateStripeCustomer(tenant) {
+    if (tenant.stripeCustomerId) {
+      try {
+        const existing = await this.stripe.customers.retrieve(tenant.stripeCustomerId);
+        if (!existing.deleted) return existing;
+      } catch (err) {
+        // Customer deleted, will create new
+      }
+    }
 
-      // Get or create customer
-      const customer = await this.getOrCreateStripeCustomer(tenant);
+    const customer = await this.stripe.customers.create({
+      email: tenant.email,
+      name: tenant.name,
+      metadata: { tenantId: tenant._id.toString() },
+    });
 
-      // Create subscription
-      const subscription = await this.stripe.subscriptions.create({
-        customer: customer.id,
-        items: [{ price_data: { currency: plan.currency, unit_amount: plan.price, recurring: { interval: plan.interval }, product_data: { name: plan.description } } }],
-        payment_behavior: 'default_incomplete',
-        expand: ['latest_invoice.payment_intent'],
-      });
+    tenant.stripeCustomerId = customer.id;
+    await tenant.save();
+    return customer;
+  }
 
-      // Update tenant
-      tenant.plan = planName;
+  // ─── CHECKOUT SESSION ──────────────────────────────────
+
+  async createCheckoutSession(tenantId, planSlug, successUrl, cancelUrl) {
+    if (!this.stripe) throw new Error('Stripe is not configured. Add STRIPE_SECRET_KEY to .env');
+
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) throw new Error('Tenant not found');
+
+    const plan = await Plan.findOne({ slug: planSlug, isActive: true });
+    if (!plan) throw new Error('Invalid plan');
+    if (plan.price === 0) throw new Error('Cannot checkout for a free plan');
+
+    // Block if tenant already has an active paid subscription
+    if (tenant.subscription?.status === 'active' && !tenant.subscription?.cancelAtPeriodEnd) {
+      const currentPlan = await Plan.findOne({ slug: tenant.plan, isActive: true });
+      if (currentPlan && currentPlan.price > 0) {
+        throw new Error('You have an active paid subscription. Cancel it first before subscribing to a new plan.');
+      }
+    }
+
+    const customer = await this.getOrCreateStripeCustomer(tenant);
+
+    // Map billingCycle → Stripe interval
+    const intervalMap = { monthly: 'month', yearly: 'year' };
+    const interval = intervalMap[plan.billingCycle] || 'month';
+
+    // Build line items
+    let lineItems;
+    if (plan.stripePriceId) {
+      lineItems = [{ price: plan.stripePriceId, quantity: 1 }];
+    } else {
+      lineItems = [{
+        price_data: {
+          currency: plan.currency || 'usd',
+          unit_amount: Math.round(plan.price * 100), // dollars → cents
+          recurring: { interval },
+          product_data: {
+            name: `${plan.name} Plan`,
+            description: plan.description || `${plan.name} subscription`,
+          },
+        },
+        quantity: 1,
+      }];
+    }
+
+    const session = await this.stripe.checkout.sessions.create({
+      customer: customer.id,
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      line_items: lineItems,
+      success_url: `${successUrl}?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: cancelUrl,
+      metadata: {
+        tenantId: tenant._id.toString(),
+        planSlug: plan.slug,
+      },
+      subscription_data: {
+        metadata: {
+          tenantId: tenant._id.toString(),
+          planSlug: plan.slug,
+        },
+      },
+      allow_promotion_codes: true,
+      billing_address_collection: 'required',
+    });
+
+    return { sessionId: session.id, url: session.url };
+  }
+
+  // ─── VERIFY CHECKOUT ──────────────────────────────────
+
+  async verifyCheckoutSession(sessionId) {
+    if (!this.stripe) throw new Error('Stripe is not configured');
+
+    const session = await this.stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['subscription'],
+    });
+
+    if (session.payment_status !== 'paid') {
+      return { status: 'pending' };
+    }
+
+    const tenantId = session.metadata.tenantId;
+    const planSlug = session.metadata.planSlug;
+    const subscription = session.subscription;
+
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) throw new Error('Tenant not found');
+
+    // Only update if not already activated by webhook
+    if (tenant.subscription?.id !== subscription.id) {
+      const plan = await Plan.findOne({ slug: planSlug });
+      tenant.plan = planSlug;
       tenant.subscription = {
         id: subscription.id,
         status: subscription.status,
+        gateway: 'stripe',
+        planSlug,
+        currentPeriodStart: new Date(subscription.current_period_start * 1000),
         currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+        cancelAtPeriodEnd: false,
       };
       await tenant.save();
-
-      return subscription;
-    } catch (err) {
-      console.error('Error creating Stripe subscription:', err);
-      throw err;
     }
+
+    return {
+      status: 'active',
+      plan: planSlug,
+      subscription: tenant.subscription,
+    };
   }
 
-  /**
-   * Create Razorpay order
-   */
-  async createRazorpayOrder(tenantId, planName) {
-    try {
-      if (!this.razorpay) throw new Error('Razorpay not configured');
+  // ─── CANCEL SUBSCRIPTION ──────────────────────────────
 
-      const tenant = await Tenant.findById(tenantId);
-      if (!tenant) throw new Error('Tenant not found');
+  async cancelSubscription(tenantId, immediate = false) {
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) throw new Error('Tenant not found');
+    if (!tenant.subscription?.id) throw new Error('No active subscription to cancel');
 
-      const plan = this.PLANS[planName];
-      if (!plan) throw new Error('Invalid plan');
-
-      // Create order
-      const order = await this.razorpay.orders.create({
-        amount: plan.price, // in paise (cents)
-        currency: 'INR',
-        receipt: `tenant_${tenantId}_${Date.now()}`,
-        notes: {
-          tenantId: tenantId.toString(),
-          planName,
-        },
-      });
-
-      return order;
-    } catch (err) {
-      console.error('Error creating Razorpay order:', err);
-      throw err;
+    if (this.stripe && tenant.subscription.gateway === 'stripe') {
+      if (immediate) {
+        await this.stripe.subscriptions.cancel(tenant.subscription.id);
+      } else {
+        await this.stripe.subscriptions.update(tenant.subscription.id, {
+          cancel_at_period_end: true,
+        });
+      }
     }
-  }
 
-  /**
-   * Verify Razorpay payment
-   */
-  verifyRazorpayPayment(orderId, paymentId, signature, secret = this.razorpay?.key_secret) {
-    try {
-      const crypto = require('crypto');
-      const body = orderId + '|' + paymentId;
-      const expectedSignature = crypto.createHmac('sha256', secret).update(body).digest('hex');
-      return expectedSignature === signature;
-    } catch (err) {
-      console.error('Error verifying Razorpay payment:', err);
-      return false;
-    }
-  }
-
-  /**
-   * Upgrade or downgrade plan
-   */
-  async changePlan(tenantId, newPlanName) {
-    try {
-      const tenant = await Tenant.findById(tenantId);
-      if (!tenant) throw new Error('Tenant not found');
-
-      if (!tenant.subscription?.id) throw new Error('No active subscription');
-
-      const newPlan = this.PLANS[newPlanName];
-      if (!newPlan) throw new Error('Invalid plan');
-
-      // Update Stripe subscription
-      const updatedSubscription = await this.stripe.subscriptions.update(tenant.subscription.id, {
-        items: [{ id: (await this.stripe.subscriptions.retrieve(tenant.subscription.id)).items.data[0].id, price_data: { currency: newPlan.currency, unit_amount: newPlan.price, recurring: { interval: newPlan.interval }, product_data: { name: newPlan.description } } }],
-        proration_behavior: 'create_prorations',
-      });
-
-      // Update tenant
-      tenant.plan = newPlanName;
-      tenant.subscription.status = updatedSubscription.status;
-      await tenant.save();
-
-      return updatedSubscription;
-    } catch (err) {
-      console.error('Error changing plan:', err);
-      throw err;
-    }
-  }
-
-  /**
-   * Cancel subscription
-   */
-  async cancelSubscription(tenantId) {
-    try {
-      const tenant = await Tenant.findById(tenantId);
-      if (!tenant) throw new Error('Tenant not found');
-
-      if (!tenant.subscription?.id) throw new Error('No active subscription');
-
-      // Cancel in Stripe
-      await this.stripe.subscriptions.del(tenant.subscription.id);
-
-      // Update tenant
-      tenant.plan = 'trial'; // Revert to trial
+    if (immediate) {
+      const freePlan = await Plan.findOne({ price: 0, isActive: true }).sort({ sortOrder: 1 });
+      tenant.plan = freePlan?.slug || 'trial';
       tenant.subscription = {
+        id: tenant.subscription.id,
         status: 'canceled',
+        gateway: tenant.subscription.gateway,
+        planSlug: tenant.subscription.planSlug,
+        canceledAt: new Date(),
+        cancelAtPeriodEnd: false,
+      };
+    } else {
+      tenant.subscription = {
+        ...tenant.subscription.toObject(),
+        status: 'canceling',
+        cancelAtPeriodEnd: true,
         canceledAt: new Date(),
       };
-      await tenant.save();
-
-      return { message: 'Subscription canceled' };
-    } catch (err) {
-      console.error('Error canceling subscription:', err);
-      throw err;
     }
+    await tenant.save();
+
+    return {
+      message: immediate
+        ? 'Subscription canceled immediately'
+        : 'Subscription will cancel at the end of the current billing period',
+      currentPeriodEnd: tenant.subscription.currentPeriodEnd,
+      status: tenant.subscription.status,
+    };
   }
 
-  /**
-   * Get subscription status
-   */
+  // ─── SUBSCRIPTION STATUS ──────────────────────────────
+
   async getSubscriptionStatus(tenantId) {
-    try {
-      const tenant = await Tenant.findById(tenantId);
-      if (!tenant) throw new Error('Tenant not found');
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) throw new Error('Tenant not found');
 
-      return {
-        plan: tenant.plan,
-        status: tenant.subscription?.status || 'none',
-        currentPeriodEnd: tenant.subscription?.currentPeriodEnd,
-        trialEndAt: tenant.trialEndAt,
-        usage: tenant.usage,
-      };
-    } catch (err) {
-      console.error('Error getting subscription status:', err);
-      throw err;
-    }
+    const plan = await Plan.findOne({ slug: tenant.plan, isActive: true });
+
+    return {
+      plan: tenant.plan,
+      planDetails: plan || null,
+      subscription: tenant.subscription || null,
+      trialStartAt: tenant.trialStartAt,
+      trialEndAt: tenant.trialEndAt,
+      usage: tenant.usage,
+      hasActiveSubscription: ['active', 'canceling'].includes(tenant.subscription?.status),
+      isPaid: plan ? plan.price > 0 : false,
+    };
   }
 
-  /**
-   * Record usage for metering
-   */
-  async recordUsage(tenantId, metric, count = 1) {
-    try {
-      const tenant = await Tenant.findById(tenantId);
-      if (!tenant) throw new Error('Tenant not found');
+  // ─── STRIPE WEBHOOK HANDLER ───────────────────────────
 
-      if (metric === 'invoiceCount') {
-        tenant.usage.invoiceCount += count;
-      } else if (metric === 'apiCallsThisMonth') {
-        tenant.usage.apiCallsThisMonth += count;
-      } else if (metric === 'activeUsers') {
-        tenant.usage.activeUsers = Math.max(tenant.usage.activeUsers || 0, count);
-      } else if (metric === 'storageMB') {
-        tenant.usage.storageMB += count;
-      }
-
-      await tenant.save();
-      return tenant.usage;
-    } catch (err) {
-      console.error('Error recording usage:', err);
-      throw err;
-    }
-  }
-
-  /**
-   * Check if tenant has exceeded limits for plan
-   */
-  async checkUsageLimits(tenantId) {
-    try {
-      const tenant = await Tenant.findById(tenantId);
-      if (!tenant) throw new Error('Tenant not found');
-
-      const limits = {
-        basic: { invoiceCount: 1000, storageMB: 5000, activeUsers: 5 },
-        pro: { invoiceCount: 50000, storageMB: 50000, activeUsers: 50 },
-        enterprise: { invoiceCount: Infinity, storageMB: Infinity, activeUsers: Infinity },
-      };
-
-      const tenantLimits = limits[tenant.plan] || limits.basic;
-      const exceeded = {};
-
-      if (tenant.usage.invoiceCount > tenantLimits.invoiceCount) {
-        exceeded.invoiceCount = true;
-      }
-      if (tenant.usage.storageMB > tenantLimits.storageMB) {
-        exceeded.storageMB = true;
-      }
-      if (tenant.usage.activeUsers > tenantLimits.activeUsers) {
-        exceeded.activeUsers = true;
-      }
-
-      return {
-        plan: tenant.plan,
-        usage: tenant.usage,
-        limits: tenantLimits,
-        exceeded,
-        isOverLimit: Object.keys(exceeded).length > 0,
-      };
-    } catch (err) {
-      console.error('Error checking usage limits:', err);
-      throw err;
-    }
-  }
-
-  /**
-   * Handle Stripe webhook event
-   */
   async handleStripeWebhook(event) {
-    try {
-      switch (event.type) {
-        case 'invoice.payment_succeeded':
-          console.log('Payment succeeded:', event.data.object.id);
-          break;
-        case 'invoice.payment_failed':
-          console.log('Payment failed:', event.data.object.id);
-          break;
-        case 'customer.subscription.updated':
-          console.log('Subscription updated:', event.data.object.id);
-          break;
-        case 'customer.subscription.deleted':
-          console.log('Subscription canceled:', event.data.object.id);
-          break;
-        default:
-          console.log('Unhandled event type:', event.type);
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        if (session.mode === 'subscription' && session.payment_status === 'paid') {
+          await this._activateFromCheckout(session);
+        }
+        break;
       }
-    } catch (err) {
-      console.error('Error handling Stripe webhook:', err);
-      throw err;
+
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object;
+        if (invoice.subscription && invoice.billing_reason === 'subscription_cycle') {
+          await this._handleRenewal(invoice);
+        }
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        if (invoice.subscription) {
+          await this._handlePaymentFailed(invoice);
+        }
+        break;
+      }
+
+      case 'customer.subscription.updated': {
+        await this._syncSubscription(event.data.object);
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        await this._handleSubscriptionEnded(event.data.object);
+        break;
+      }
+
+      default:
+        console.log('Unhandled Stripe event:', event.type);
     }
+  }
+
+  async _activateFromCheckout(session) {
+    const tenantId = session.metadata?.tenantId;
+    const planSlug = session.metadata?.planSlug;
+    if (!tenantId || !planSlug) return;
+
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) return;
+
+    const subscription = await this.stripe.subscriptions.retrieve(session.subscription);
+
+    tenant.plan = planSlug;
+    tenant.subscription = {
+      id: subscription.id,
+      status: subscription.status,
+      gateway: 'stripe',
+      planSlug,
+      currentPeriodStart: new Date(subscription.current_period_start * 1000),
+      currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+      cancelAtPeriodEnd: false,
+    };
+    await tenant.save();
+    console.log(`[Billing] Subscription activated – tenant ${tenantId} → ${planSlug}`);
+  }
+
+  async _handleRenewal(invoice) {
+    const tenant = await Tenant.findOne({ stripeCustomerId: invoice.customer });
+    if (!tenant || tenant.subscription?.id !== invoice.subscription) return;
+
+    const subscription = await this.stripe.subscriptions.retrieve(invoice.subscription);
+    tenant.subscription.status = 'active';
+    tenant.subscription.currentPeriodStart = new Date(subscription.current_period_start * 1000);
+    tenant.subscription.currentPeriodEnd = new Date(subscription.current_period_end * 1000);
+    tenant.subscription.cancelAtPeriodEnd = false;
+    tenant.subscription.canceledAt = undefined;
+
+    // Reset monthly usage counters on renewal
+    tenant.usage.apiCallsThisMonth = 0;
+    await tenant.save();
+    console.log(`[Billing] Renewal succeeded – tenant ${tenant._id}`);
+  }
+
+  async _handlePaymentFailed(invoice) {
+    const tenant = await Tenant.findOne({ stripeCustomerId: invoice.customer });
+    if (!tenant) return;
+
+    tenant.subscription.status = 'past_due';
+    await tenant.save();
+    console.log(`[Billing] Payment failed – tenant ${tenant._id}`);
+  }
+
+  async _syncSubscription(subscription) {
+    const tenantId = subscription.metadata?.tenantId;
+    let tenant = tenantId
+      ? await Tenant.findById(tenantId)
+      : await Tenant.findOne({ 'subscription.id': subscription.id });
+    if (!tenant) return;
+
+    tenant.subscription.status = subscription.cancel_at_period_end ? 'canceling' : subscription.status;
+    tenant.subscription.currentPeriodStart = new Date(subscription.current_period_start * 1000);
+    tenant.subscription.currentPeriodEnd = new Date(subscription.current_period_end * 1000);
+    tenant.subscription.cancelAtPeriodEnd = !!subscription.cancel_at_period_end;
+    await tenant.save();
+    console.log(`[Billing] Subscription synced – tenant ${tenant._id} → ${tenant.subscription.status}`);
+  }
+
+  async _handleSubscriptionEnded(subscription) {
+    const tenantId = subscription.metadata?.tenantId;
+    let tenant = tenantId
+      ? await Tenant.findById(tenantId)
+      : await Tenant.findOne({ 'subscription.id': subscription.id });
+    if (!tenant) return;
+
+    const freePlan = await Plan.findOne({ price: 0, isActive: true }).sort({ sortOrder: 1 });
+    tenant.plan = freePlan?.slug || 'trial';
+    tenant.subscription = {
+      id: subscription.id,
+      status: 'canceled',
+      gateway: 'stripe',
+      planSlug: tenant.subscription?.planSlug,
+      canceledAt: new Date(),
+      cancelAtPeriodEnd: false,
+    };
+    await tenant.save();
+    console.log(`[Billing] Subscription ended – tenant ${tenant._id} reverted to ${tenant.plan}`);
+  }
+
+  // ─── RAZORPAY ─────────────────────────────────────────
+
+  async createRazorpayOrder(tenantId, planSlug) {
+    if (!this.razorpay) throw new Error('Razorpay not configured');
+
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) throw new Error('Tenant not found');
+
+    const plan = await Plan.findOne({ slug: planSlug, isActive: true });
+    if (!plan) throw new Error('Invalid plan');
+    if (plan.price === 0) throw new Error('Cannot checkout for a free plan');
+
+    const order = await this.razorpay.orders.create({
+      amount: Math.round(plan.price * 100),
+      currency: 'INR',
+      receipt: `tenant_${tenantId}_${Date.now()}`,
+      notes: { tenantId: tenantId.toString(), planSlug },
+    });
+    return order;
+  }
+
+  verifyRazorpayPayment(orderId, paymentId, signature) {
+    const crypto = require('crypto');
+    const secret = process.env.RAZORPAY_KEY_SECRET;
+    if (!secret) return false;
+    const body = orderId + '|' + paymentId;
+    const expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
+    return expected === signature;
+  }
+
+  // ─── USAGE ────────────────────────────────────────────
+
+  async recordUsage(tenantId, metric, count = 1) {
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) throw new Error('Tenant not found');
+
+    if (metric === 'invoiceCount') tenant.usage.invoiceCount += count;
+    else if (metric === 'apiCallsThisMonth') tenant.usage.apiCallsThisMonth += count;
+    else if (metric === 'activeUsers') tenant.usage.activeUsers = Math.max(tenant.usage.activeUsers || 0, count);
+    else if (metric === 'storageMB') tenant.usage.storageMB += count;
+
+    await tenant.save();
+    return tenant.usage;
+  }
+
+  async checkUsageLimits(tenantId) {
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) throw new Error('Tenant not found');
+
+    const plan = await Plan.findOne({ slug: tenant.plan, isActive: true });
+    const limits = plan?.features || { maxUsers: 1, maxBranches: 1, maxProducts: 100, maxInvoicesPerMonth: 50 };
+
+    const exceeded = {};
+    if (tenant.usage.invoiceCount > limits.maxInvoicesPerMonth) exceeded.invoiceCount = true;
+    if (tenant.usage.activeUsers > limits.maxUsers) exceeded.activeUsers = true;
+
+    return {
+      plan: tenant.plan,
+      usage: tenant.usage,
+      limits,
+      exceeded,
+      isOverLimit: Object.keys(exceeded).length > 0,
+    };
   }
 }
 

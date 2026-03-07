@@ -1,0 +1,636 @@
+.superadminDashboard {
+  min-height: 100vh;
+  background: #f0f2f5;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 24px 32px;
+}
+
+.header h1 {
+  margin: 0 0 4px 0;
+  font-size: 24px;
+}
+
+.header p {
+  margin: 0;
+  opacity: 0.85;
+  font-size: 14px;
+}
+
+.tabs {
+  display: flex;
+  gap: 0;
+  background: #fff;
+  border-bottom: 2px solid #e8e8e8;
+  padding: 0 24px;
+  overflow-x: auto;
+}
+
+.tab {
+  padding: 14px 20px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: #666;
+  border-bottom: 3px solid transparent;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  color: #667eea;
+  background: #f8f9ff;
+}
+
+.tab.active {
+  color: #667eea;
+  border-bottom-color: #667eea;
+  font-weight: 600;
+}
+
+.content {
+  padding: 24px 32px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.loader {
+  text-align: center;
+  padding: 60px;
+  font-size: 18px;
+  color: #888;
+}
+
+/* Dashboard metrics */
+.dashboardSection h2 {
+  margin: 0 0 16px 0;
+  font-size: 20px;
+  color: #333;
+}
+
+.metricsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.metric {
+  background: #fff;
+  border-radius: 10px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.metric h3 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  color: #888;
+  letter-spacing: 0.5px;
+}
+
+.metricValue {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 700;
+  color: #333;
+}
+
+.metric small {
+  color: #888;
+  font-size: 13px;
+}
+
+/* Tables */
+.tableSection {
+  background: #fff;
+  border-radius: 10px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.tableSection h2 {
+  margin: 0 0 16px 0;
+  font-size: 20px;
+  color: #333;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 2px solid #e8e8e8;
+  color: #555;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #f0f0f0;
+  color: #333;
+}
+
+.table tr:hover {
+  background: #fafbff;
+}
+
+/* Action buttons */
+.actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.btnSmall {
+  padding: 5px 12px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  background: #667eea;
+  color: #fff;
+  transition: opacity 0.2s;
+}
+
+.btnSmall:hover {
+  opacity: 0.85;
+}
+
+.btnSmallDanger {
+  padding: 5px 12px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  background: #e74c3c;
+  color: #fff;
+  transition: opacity 0.2s;
+}
+
+.btnSmallDanger:hover {
+  opacity: 0.85;
+}
+
+.btnSmallSuccess {
+  padding: 5px 12px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  background: #27ae60;
+  color: #fff;
+  transition: opacity 0.2s;
+}
+
+.btnSmallSuccess:hover {
+  opacity: 0.85;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  gap: 6px;
+  margin-top: 20px;
+  justify-content: center;
+}
+
+.pageBtn {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  cursor: pointer;
+  background: #fff;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.pageBtn:hover {
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.pageBtn.active {
+  background: #667eea;
+  color: #fff;
+  border-color: #667eea;
+}
+
+/* Details panel */
+.detailsPanel {
+  margin-top: 12px;
+}
+
+.backBtn {
+  padding: 8px 16px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  cursor: pointer;
+  background: #f8f9fa;
+  font-size: 13px;
+  margin-bottom: 16px;
+  transition: all 0.2s;
+}
+
+.backBtn:hover {
+  background: #e9ecef;
+}
+
+.detailsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 16px 0 24px;
+  background: #f8f9ff;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.detailsGrid strong {
+  color: #667eea;
+}
+
+.detailsPanel h3 {
+  margin: 0 0 12px 0;
+  font-size: 22px;
+  color: #333;
+}
+
+.detailsPanel h4 {
+  margin: 24px 0 12px 0;
+  font-size: 16px;
+  color: #555;
+}
+
+/* ===== Tenant Detail View ===== */
+.tdHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 0;
+}
+
+.tdBackBtn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #374151;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.tdBackBtn:hover {
+  background: #f3f4f6;
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.tdName {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.tdTabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #e5e7eb;
+  margin: 16px 0 20px;
+}
+
+.tdTab {
+  padding: 10px 20px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: #6b7280;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.tdTab:hover {
+  color: #667eea;
+}
+
+.tdTabActive {
+  color: #667eea;
+  border-bottom-color: #667eea;
+  font-weight: 600;
+}
+
+.tdLayout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 24px;
+  align-items: start;
+}
+
+.tdMain {
+  min-width: 0;
+}
+
+.tdCard {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 24px;
+}
+
+.tdCardTitle {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.tdInfoGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.tdInfoItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tdInfoLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.tdInfoValue {
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+}
+
+/* Sidebar */
+.tdSidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.tdSideCard {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.tdSideTitle {
+  margin: 0 0 16px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.tdMetricsRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tdMetricBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.tdMetricIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.tdMetricLabel {
+  font-size: 11px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.tdMetricVal {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.tdSideSection {
+  margin-bottom: 4px;
+}
+
+.tdSideSectionTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: #374151;
+  margin-bottom: 10px;
+}
+
+.tdSideRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.tdSideLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+}
+
+.tdSideValue {
+  font-size: 13px;
+  color: #111827;
+}
+
+.tdSideDivider {
+  height: 1px;
+  background: #f3f4f6;
+  margin: 12px 0;
+}
+
+/* Badges */
+.tdBadge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.tdBadgeGreen {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.tdBadgeRed {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.tdBadgeYellow {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+@media (max-width: 900px) {
+  .tdLayout {
+    grid-template-columns: 1fr;
+  }
+  .tdMetricsRow {
+    flex-wrap: wrap;
+  }
+  .tdInfoGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Settings form */
+.settingsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.formGroup label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.formGroup input {
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.formGroup input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+}
+
+/* Confirmation Modal */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+
+.modal {
+  background: white;
+  border-radius: 12px;
+  width: 440px;
+  max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  animation: slideUp 0.2s ease;
+}
+
+.modalHeader {
+  padding: 20px 24px;
+  font-size: 18px;
+  font-weight: 700;
+  border-bottom: 1px solid #eee;
+}
+
+.modalHeader[data-type='danger'] {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.modalHeader[data-type='success'] {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.modalHeader[data-type='info'] {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.modalBody {
+  padding: 20px 24px;
+  font-size: 14px;
+  color: #555;
+  line-height: 1.6;
+}
+
+.modalFooter {
+  padding: 16px 24px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid #eee;
+  background: #fafafa;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
