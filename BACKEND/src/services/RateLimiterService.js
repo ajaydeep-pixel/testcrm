@@ -4,14 +4,36 @@
  */
 
 const redis = require('redis');
+const RedisMemoryStore = require('../helpers/RedisMemoryStore');
 
 class RateLimiter {
   constructor() {
-    this.client = redis.createClient({
-      url: process.env.REDIS_URL || 'redis://localhost:6379',
-    });
-    this.client.on('error', (err) => console.error('Redis Client Error', err));
-    this.client.connect();
+    this.client = null;
+    this.ready = false;
+    this.initRedis();
+  }
+
+  async initRedis() {
+    try {
+      const redisClient = redis.createClient({
+        url: process.env.REDIS_URL || 'redis://localhost:6379',
+        socket: { reconnectStrategy: () => false }, // Don't retry on failure
+      });
+
+      await Promise.race([
+        redisClient.connect(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Redis connection timeout')), 2000)),
+      ]);
+
+      this.client = redisClient;
+      this.ready = true;
+      console.log('✅ RateLimiter connected to Redis');
+    } catch (err) {
+      console.warn('⚠️ Redis unavailable, using in-memory store for rate-limiting:', err.message);
+      this.client = new RedisMemoryStore();
+      await this.client.connect();
+      this.ready = true;
+    }
   }
 
   /**

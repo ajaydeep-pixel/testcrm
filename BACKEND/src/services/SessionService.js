@@ -5,15 +5,38 @@
  */
 
 const redis = require('redis');
+const RedisMemoryStore = require('../helpers/RedisMemoryStore');
 const { v4: uuidv4 } = require('uuid');
 
-// Create Redis client (connect to Redis at process.env.REDIS_URL or localhost:6379)
-const client = redis.createClient({
-  url: process.env.REDIS_URL || 'redis://localhost:6379',
-});
+// Initialize Redis client with fallback
+let client = null;
+let redisReady = false;
 
-client.on('error', (err) => console.error('Redis Client Error', err));
-client.connect();
+const initRedis = async () => {
+  try {
+    const redisClient = redis.createClient({
+      url: process.env.REDIS_URL || 'redis://localhost:6379',
+      socket: { reconnectStrategy: () => false }, // Don't retry on failure
+    });
+
+    await Promise.race([
+      redisClient.connect(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Redis connection timeout')), 2000)),
+    ]);
+
+    client = redisClient;
+    redisReady = true;
+    console.log('✅ SessionService connected to Redis');
+  } catch (err) {
+    console.warn('⚠️ Redis unavailable, using in-memory store for sessions:', err.message);
+    client = new RedisMemoryStore();
+    await client.connect();
+    redisReady = true;
+  }
+};
+
+// Initialize on module load
+initRedis();
 
 const SESSION_PREFIX = 'session:';
 const SESSION_EXPIRY = 7 * 24 * 60 * 60; // 7 days in seconds
