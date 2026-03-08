@@ -8,6 +8,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { apiService } from '../services/apiService';
 import { useToast } from './Toast';
 import styles from './SuperadminDashboard.module.css';
+import { useTheme } from '../context/ThemeContext';
 
 const SuperadminDashboard = () => {
   const toast = useToast();
@@ -44,6 +45,7 @@ const SuperadminDashboard = () => {
   const [planForm, setPlanForm] = useState({ name: '', slug: '', price: 0, billingCycle: 'monthly', description: '', isActive: true, sortOrder: 0, maxUsers: 1, maxBranches: 1, maxProducts: 100, maxInvoicesPerMonth: 50 });
   const [showPlanForm, setShowPlanForm] = useState(false);
   const [tenantDetailTab, setTenantDetailTab] = useState('overview');
+  const { theme, toggleTheme } = useTheme();
 
   // Fetch dashboard metrics
   const fetchMetrics = async () => {
@@ -429,16 +431,49 @@ const SuperadminDashboard = () => {
   }, [activeTab]);
 
   return (
-    <div className={styles.superadminDashboard}>
+    <div className={`${styles.superadminDashboard} ${theme === 'dark' ? styles.dark : ''}`}>
       <header className={styles.header}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h1>🛡️ Platform Admin Dashboard</h1>
             <p>Manage all tenants, users, payments, and system activity</p>
           </div>
-          <button onClick={handleLogout} className={styles.btnSmallDanger} style={{ padding: '10px 20px', fontSize: '14px' }}>
-            Logout
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+            <button onClick={handleLogout} className={styles.btnSmallDanger} style={{ padding: '10px 20px', fontSize: '14px' }}>
+              Logout
+            </button>
+            <button
+              onClick={toggleTheme}
+              title={theme === 'light' ? 'Enable Dark Mode' : 'Enable Light Mode'}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+                display: 'flex',
+                alignItems: 'center',
+                color: theme === 'dark' ? '#f3f4f6' : '#111827',
+              }}
+            >
+              {theme === 'light' ? (
+                <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="5" />
+                  <line x1="12" y1="1" x2="12" y2="3" />
+                  <line x1="12" y1="21" x2="12" y2="23" />
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                  <line x1="1" y1="12" x2="3" y2="12" />
+                  <line x1="21" y1="12" x2="23" y2="12" />
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                </svg>
+              ) : (
+                <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                  <path d="M21 12.79A9 9 0 0 1 12.21 3c0-.01 0-.01 0 0a9 9 0 1 0 8.79 9.79z" />
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -556,11 +591,6 @@ const SuperadminDashboard = () => {
                     ←
                   </button>
                   <h2 className={styles.tdName}>{tenantDetails.tenant.name}</h2>
-                  {!editingTenant && (
-                    <button className={styles.btnSmall} onClick={startEditTenant} style={{ marginLeft: 'auto' }}>
-                      ✏️ Edit Tenant
-                    </button>
-                  )}
                 </div>
 
                 {/* Tab Navigation */}
@@ -1405,3 +1435,6 @@ const SuperadminDashboard = () => {
 };
 
 export default SuperadminDashboard;
+
+
+

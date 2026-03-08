@@ -7,7 +7,10 @@ import InventoryWidget from '../components/InventoryWidget';
 import RateLimitWidget from '../components/RateLimitWidget';
 import TopProductsWidget from '../components/TopProductsWidget';
 import QuickActionsWidget from '../components/QuickActionsWidget';
+import TenantCommonHeader from '../components/TenantCommonHeader';
+import SuperadminReturnBar from '../components/SuperadminReturnBar';
 import { format } from 'date-fns';
+import { useTheme } from '../context/ThemeContext';
 
 export default function Dashboard() {
   const toast = useToast();
@@ -24,6 +27,7 @@ export default function Dashboard() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const { theme, toggleTheme } = useTheme();
 
   const isSuperadminSession = !!localStorage.getItem('superadmin_token');
 
@@ -139,6 +143,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">
+        
         <div className="text-center">
           <div className="spinner mb-4"></div>
           <p className="text-gray-600">Loading dashboard...</p>
@@ -149,41 +154,17 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Superadmin Return Banner */}
-      {isSuperadminSession && (
-        <div style={{
-          background: '#e74c3c',
-          color: 'white',
-          padding: '10px 20px',
-          textAlign: 'center',
-          fontSize: '14px',
-          fontWeight: '600',
-        }}>
-          ⚠️ You are viewing this account as Superadmin.{' '}
-          <button
-            onClick={handleReturnToAdmin}
-            style={{
-              background: 'white',
-              color: '#e74c3c',
-              border: 'none',
-              padding: '5px 15px',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              marginLeft: '10px',
-              fontWeight: '600',
-            }}
-          >
-            Return to Admin Dashboard
-          </button>
-        </div>
-      )}
-      {/* Header */}
+      <SuperadminReturnBar />
+      <TenantCommonHeader />
+      {/* Dashboard Header */}
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
             <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-            <div className="text-sm text-gray-500">
-              {format(new Date(), 'EEEE, MMMM d, yyyy')}
+            <div className="flex items-center gap-3">
+              <div className="text-sm text-gray-500">
+                {format(new Date(), 'EEEE, MMMM d, yyyy')}
+              </div>
             </div>
           </div>
         </div>
@@ -511,3 +492,6 @@ export default function Dashboard() {
     </div>
   );
 }
+
+
+

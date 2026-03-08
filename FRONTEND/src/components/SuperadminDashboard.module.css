@@ -634,3 +634,50 @@
   from { transform: translateY(20px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
 }
+
+/* Dark theme support */
+.dark {
+  background: #0f172a;
+  color: #e5e7eb;
+}
+
+.dark .tabs,
+.dark .metric,
+.dark .tableSection,
+.dark .modal,
+.dark .contentBlock,
+.dark .summaryCard,
+.dark .planCard,
+.dark .tenantCard,
+.dark .tableWrap {
+  background: #111827;
+  color: #e5e7eb;
+}
+
+.dark .tab {
+  color: #cbd5e1;
+}
+
+.dark .tab:hover {
+  color: #93c5fd;
+  background: #1f2937;
+}
+
+.dark .table th,
+.dark .table td,
+.dark .metricValue,
+.dark .dashboardSection h2,
+.dark .tableSection h2 {
+  color: #e5e7eb;
+}
+
+.dark .table th,
+.dark .table td,
+.dark .tabs {
+  border-color: #334155;
+}
+
+.dark .table tr:hover,
+.dark .table tr:hover td {
+  background: #1f2937;
+}

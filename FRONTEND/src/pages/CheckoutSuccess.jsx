@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { billingAPI } from '../services/api';
+import TenantCommonHeader from '../components/TenantCommonHeader';
+import SuperadminReturnBar from '../components/SuperadminReturnBar';
 import { useToast } from '../components/Toast';
 
 export default function CheckoutSuccess() {
@@ -55,7 +57,9 @@ export default function CheckoutSuccess() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f9fafb', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <SuperadminReturnBar />
       <div style={{ background: 'white', borderRadius: 16, padding: 40, maxWidth: 500, width: '100%', textAlign: 'center', boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
+        <TenantCommonHeader />
         {status === 'verifying' && (
           <>
             <div style={{ width: 56, height: 56, border: '4px solid #e5e7eb', borderTop: '4px solid #2563eb', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 20px' }}></div>

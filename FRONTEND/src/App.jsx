@@ -8,6 +8,7 @@ import CheckoutPage from './pages/CheckoutPage';
 import CheckoutSuccess from './pages/CheckoutSuccess';
 import CheckoutCancel from './pages/CheckoutCancel';
 import SuperadminDashboard from './components/SuperadminDashboard';
+import SettingsPage from './pages/SettingsPage';
 import './styles/global.css';
 
 function App() {
@@ -86,6 +87,13 @@ function App() {
               <Navigate to="/login" replace />
             )
           }
+        />
+
+        {/* Settings Route */}
+        <Route
+          path="/settings"
+          element={!isAuthenticated ? 
+          <Navigate to="/login" replace /> : <SettingsPage />}
         />
 
         {/* Checkout Routes */}

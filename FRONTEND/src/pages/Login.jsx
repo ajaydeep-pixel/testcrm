@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api';
+import TenantCommonHeader from '../components/TenantCommonHeader';
 
 export default function Login({ onLoginSuccess }) {
   const navigate = useNavigate();
@@ -126,6 +127,7 @@ export default function Login({ onLoginSuccess }) {
         ) : (
           <form onSubmit={handleTOTPSubmit}>
             <div className="mb-4 p-4 bg-blue-50 rounded">
+            <TenantCommonHeader />
               <p className="text-sm text-gray-700">
                 Two-factor authentication is enabled. Please enter the code from your authenticator app.
               </p>

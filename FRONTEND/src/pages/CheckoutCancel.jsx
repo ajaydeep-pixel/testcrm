@@ -1,11 +1,14 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import TenantCommonHeader from '../components/TenantCommonHeader';
+import SuperadminReturnBar from '../components/SuperadminReturnBar';
 
 export default function CheckoutCancel() {
   const navigate = useNavigate();
 
   return (
     <div style={{ minHeight: '100vh', background: '#f9fafb', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <SuperadminReturnBar />
       <div style={{ background: 'white', borderRadius: 16, padding: 40, maxWidth: 480, width: '100%', textAlign: 'center', boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
         <div style={{
           width: 64, height: 64, borderRadius: '50%', background: '#fef3c7',
@@ -38,6 +41,7 @@ export default function CheckoutCancel() {
             Try Again
           </button>
         </div>
+        <TenantCommonHeader />
       </div>
     </div>
   );

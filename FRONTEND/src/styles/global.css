@@ -68,3 +68,62 @@ textarea:focus {
 .card {
   @apply bg-white rounded-lg shadow p-6;
 }
+
+/* Theme Toggle */
+.theme-toggle-btn {
+  background: #2563eb;
+  color: #ffffff;
+  border: 1px solid #1d4ed8;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.theme-toggle-btn:hover {
+  background: #1d4ed8;
+}
+
+/* Dark theme */
+body.theme-dark {
+  background-color: #0f172a;
+  color: #e5e7eb;
+}
+
+body.theme-dark .bg-white {
+  background-color: #111827 !important;
+}
+
+body.theme-dark .bg-gray-50 {
+  background-color: #0f172a !important;
+}
+
+body.theme-dark .text-gray-900 {
+  color: #f9fafb !important;
+}
+
+body.theme-dark .text-gray-700,
+body.theme-dark .text-gray-600,
+body.theme-dark .text-gray-500 {
+  color: #cbd5e1 !important;
+}
+
+body.theme-dark .border,
+body.theme-dark .border-gray-200,
+body.theme-dark .border-blue-200 {
+  border-color: #334155 !important;
+}
+
+body.theme-dark .shadow,
+body.theme-dark .shadow-sm {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45) !important;
+}
+
+/* Dark theme table hover */
+body.theme-dark table tr:hover,
+body.theme-dark table tr:hover td,
+body.theme-dark .table tr:hover,
+body.theme-dark .table tr:hover td {
+  background-color: #1f2937 !important;
+}
