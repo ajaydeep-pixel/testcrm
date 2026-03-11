@@ -72,13 +72,12 @@ export default function Signup({ onSignupSuccess }) {
         companyName,
         email,
         password,
-        branch: {
-          name: branchName,
-          timezone,
-          currency,
-        },
-        gst_enabled: gstEnabled,
-        gst_number: gstNumber,
+        branchName,
+        timezone,
+        currency,
+        gstEnabled,
+        gstNumber,
+        plan: selectedPlan
       };
 
       const response = await authAPI.signup(signupData);
@@ -88,7 +87,6 @@ export default function Signup({ onSignupSuccess }) {
       localStorage.setItem('user', JSON.stringify(user));
       if (tenant) localStorage.setItem('tenant', JSON.stringify(tenant));
 
-      // If they selected a paid plan, redirect to billing setup
       if (selectedPlan !== 'trial') {
         window.location.href = '/billing/setup';
       } else {
@@ -96,7 +94,7 @@ export default function Signup({ onSignupSuccess }) {
       }
     } catch (err) {
       setError(err.response?.data?.message || 'Signup failed. Please try again.');
-      setStep('company'); // Reset to first step on error
+      setStep('company');
     } finally {
       setLoading(false);
     }

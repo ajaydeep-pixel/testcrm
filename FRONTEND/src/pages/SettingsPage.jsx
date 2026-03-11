@@ -7,7 +7,10 @@ export default function SettingsPage() {
   return (
     <>
       <SuperadminReturnBar />
-      <TenantCommonHeader />
+      <TenantCommonHeader
+        title="Settings"
+        subtitle="Manage your account, preferences, and billing."
+      />
       <SettingsMenu />
     </>
   );

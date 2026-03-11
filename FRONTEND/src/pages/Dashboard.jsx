@@ -155,20 +155,10 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       <SuperadminReturnBar />
-      <TenantCommonHeader />
-      {/* Dashboard Header */}
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-            <div className="flex items-center gap-3">
-              <div className="text-sm text-gray-500">
-                {format(new Date(), 'EEEE, MMMM d, yyyy')}
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
+      <TenantCommonHeader
+        title="Dashboard"
+        subtitle={format(new Date(), 'EEEE, MMMM d, yyyy')}
+      />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

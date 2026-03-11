@@ -95,15 +95,7 @@ export default function CheckoutPage() {
   return (
     <div style={{ minHeight: "100vh", background: "#f9fafb", padding: "40px 16px" }}>
       <div style={{ maxWidth: 720, margin: "0 auto" }}>
-        <TenantCommonHeader />
-
-        {/* HEADER */}
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>Checkout</h1>
-          <p style={{ color: "#6b7280", marginTop: 8 }}>
-            Review your plan and proceed to payment
-          </p>
-        </div>
+        <TenantCommonHeader title="Checkout" subtitle="Review your plan and proceed to payment" />
 
         {/* ACTIVE SUBSCRIPTION WARNING */}
         {hasActiveSubscription && (

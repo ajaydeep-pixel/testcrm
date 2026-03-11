@@ -74,12 +74,11 @@ export default function Login({ onLoginSuccess }) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center px-4">
+      <TenantCommonHeader
+        title={branding.appName || 'BikeFlow'}
+        subtitle={branding.tagline || 'Cloud POS for medium businesses'}
+      />
       <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-8">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">{branding.appName || 'BikeFlow'}</h1>
-          <p className="text-gray-600 mt-2">{branding.tagline || 'Cloud POS for medium businesses'}</p>
-        </div>
-
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
             {error}
@@ -127,7 +126,6 @@ export default function Login({ onLoginSuccess }) {
         ) : (
           <form onSubmit={handleTOTPSubmit}>
             <div className="mb-4 p-4 bg-blue-50 rounded">
-            <TenantCommonHeader />
               <p className="text-sm text-gray-700">
                 Two-factor authentication is enabled. Please enter the code from your authenticator app.
               </p>
