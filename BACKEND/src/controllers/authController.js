@@ -51,6 +51,11 @@ exports.signupTenant = async (req, res) => {
         gst_enabled,
         gst_number,
       },
+      billing: {
+        sameAsBusiness: false,
+        name: companyName,
+        email,
+      },
     });
 
     await tenant.save();

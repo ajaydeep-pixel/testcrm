@@ -46,6 +46,7 @@ app.use('/api/admin', require('./src/routes/adminRoutes'));
 app.use('/api/billing', verifyToken, extractTenant, verifyTenantAccess, rateLimitTenant(), recordUsage, checkUsageAndWarn, require('./src/routes/billingRoutes'));
 app.use('/api/audit', verifyToken, extractTenant, verifyTenantAccess, rateLimitTenant(), recordUsage, checkUsageAndWarn, require('./src/routes/auditRoutes'));
 app.use('/api/usage', verifyToken, extractTenant, verifyTenantAccess, rateLimitTenant(), recordUsage, checkUsageAndWarn, require('./src/routes/usageRoutes'));
+app.use('/api/settings', verifyToken, extractTenant, verifyTenantAccess, rateLimitTenant(), recordUsage, checkUsageAndWarn, require('./src/routes/settingsRoutes'));
 
 // Secure these routes with auth + tenant + rate limit + usage metering
 app.use('/api/products', verifyToken, extractTenant, verifyTenantAccess, rateLimitTenant(), recordUsage, checkUsageAndWarn, require('./src/routes/productRoutes'));

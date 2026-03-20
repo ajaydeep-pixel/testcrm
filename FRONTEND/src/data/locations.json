@@ -1,0 +1,48 @@
+{
+  "countries": [
+    {
+      "id": "IN",
+      "name": "India",
+      "states": [
+        {
+          "id": "IN-KA",
+          "name": "Karnataka",
+          "cities": [
+            { "id": "IN-KA-BLR", "name": "Bengaluru" },
+            { "id": "IN-KA-MYS", "name": "Mysuru" }
+          ]
+        },
+        {
+          "id": "IN-MH",
+          "name": "Maharashtra",
+          "cities": [
+            { "id": "IN-MH-MUM", "name": "Mumbai" },
+            { "id": "IN-MH-PUN", "name": "Pune" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "US",
+      "name": "United States",
+      "states": [
+        {
+          "id": "US-CA",
+          "name": "California",
+          "cities": [
+            { "id": "US-CA-SF", "name": "San Francisco" },
+            { "id": "US-CA-LA", "name": "Los Angeles" }
+          ]
+        },
+        {
+          "id": "US-NY",
+          "name": "New York",
+          "cities": [
+            { "id": "US-NY-NYC", "name": "New York City" },
+            { "id": "US-NY-BUF", "name": "Buffalo" }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,9 +1,11 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
-export default function TenantCommonHeader({ title, subtitle }) {
+
+export default function TenantCommonHeader({ title, subtitle, showNav = true, portalLabel = 'Tenant Portal' }) {
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === 'dark';
+
   return (
     <header
       className="tenant-header"
@@ -24,27 +26,33 @@ export default function TenantCommonHeader({ title, subtitle }) {
           gap: 12,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontWeight: 700, fontSize: '20px', color: isDark ? '#f3f4f6' : '#111827' }}>Tenant Portal</div>
-          <nav style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-            <Link to="/dashboard" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Dashboard</Link>
-            <Link to="/settings" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Settings</Link>
-            <Link to="/billing" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Billing</Link>
-            <button
-              style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827', background: 'none', border: 'none', cursor: 'pointer' }}
-              onClick={() => {
-                localStorage.removeItem('token');
-                localStorage.removeItem('user');
-                window.location.href = '/login';
-              }}
-            >
-              Logout
-            </button>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: '20px', color: isDark ? '#f3f4f6' : '#111827' }}>
+            {portalLabel}
+          </div>
+          <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+            {showNav && (
+              <nav style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+                <Link to="/dashboard" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Dashboard</Link>
+                <Link to="/settings" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Settings</Link>
+                <Link to="/billing" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Billing</Link>
+                <button
+                  style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827', background: 'none', border: 'none', cursor: 'pointer' }}
+                  onClick={() => {
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    window.location.href = '/login';
+                  }}
+                >
+                  Logout
+                </button>
+              </nav>
+            )}
             <button
               onClick={toggleTheme}
               title={theme === 'light' ? 'Enable Dark Mode' : 'Enable Light Mode'}
               style={{
-                marginLeft: 16,
+                marginLeft: showNav ? 16 : 0,
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
@@ -72,9 +80,8 @@ export default function TenantCommonHeader({ title, subtitle }) {
                 </svg>
               )}
             </button>
-          </nav>
+          </div>
         </div>
-      {/* If title/ subtitle props are provided, render them below nav */}
         {typeof title !== 'undefined' && (
           <div
             style={{

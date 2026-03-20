@@ -12,6 +12,30 @@ const tenantSchema = new mongoose.Schema(
       required: true,
       unique: true,
     },
+    phone: {
+      type: String,
+      default: '',
+    },
+    address: {
+      type: String,
+      default: '',
+    },
+    country: {
+      type: String,
+      default: '',
+    },
+    state: {
+      type: String,
+      default: '',
+    },
+    city: {
+      type: String,
+      default: '',
+    },
+    zip: {
+      type: String,
+      default: '',
+    },
     status: {
       type: String,
       enum: ['active', 'suspended', 'inactive'],
@@ -64,6 +88,17 @@ const tenantSchema = new mongoose.Schema(
         default: false,
       },
       vat_number: String,
+    },
+    billing: {
+      sameAsBusiness: { type: Boolean, default: false },
+      name: { type: String, default: '' },
+      email: { type: String, default: '' },
+      phone: { type: String, default: '' },
+      address: { type: String, default: '' },
+      city: { type: String, default: '' },
+      state: { type: String, default: '' },
+      zip: { type: String, default: '' },
+      country: { type: String, default: '' },
     },
     stripeCustomerId: String,
     stripePlanId: String,

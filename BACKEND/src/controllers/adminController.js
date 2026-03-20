@@ -142,11 +142,17 @@ exports.updateTenantStatus = async (req, res) => {
  */
 exports.updateTenant = async (req, res) => {
   try {
-    const { name, email, plan, status, settings } = req.body;
+    const { name, email, phone, address, country, state, city, zip, plan, status, settings } = req.body;
 
     const updateFields = {};
     if (name) updateFields.name = name;
     if (email) updateFields.email = email;
+    if (phone !== undefined) updateFields.phone = phone;
+    if (address !== undefined) updateFields.address = address;
+    if (country !== undefined) updateFields.country = country;
+    if (state !== undefined) updateFields.state = state;
+    if (city !== undefined) updateFields.city = city;
+    if (zip !== undefined) updateFields.zip = zip;
     if (plan && ['trial', 'basic', 'pro', 'enterprise'].includes(plan)) updateFields.plan = plan;
     if (status && ['active', 'suspended', 'inactive'].includes(status)) updateFields.status = status;
     if (settings) {

@@ -2,6 +2,7 @@
 import React from 'react';
 import BillingInfo from './BillingInfo';
 import BusinessInfo from './BusinessInfo';
+import ProfileInfo from './ProfileInfo';
 import PasswordChange from './PasswordChange';
 import SubscriptionDetails from './SubscriptionDetails';
 import PaymentHistory from './PaymentHistory';
@@ -308,8 +309,9 @@ export default function SettingsMenu() {
   };
 
   const menuOptions = [
-    { label: 'Billing Info', component: <BillingInfo styles={styles} /> },
     { label: 'Business Info', component: <BusinessInfo styles={styles} /> },
+    { label: 'Billing Info', component: <BillingInfo styles={styles} /> },
+    { label: 'Profile Info', component: <ProfileInfo styles={styles} /> },
     { label: 'Password', component: <PasswordChange styles={styles} /> },
     { label: 'Subscription Details', component: <SubscriptionDetails details={subscriptionDetails} styles={styles} /> },
     { label: 'Payment History & Invoices', component: <PaymentHistory history={paymentHistory} styles={styles} /> },

@@ -77,6 +77,16 @@ export const auditAPI = {
   getSummary: () => api.get('/audit/summary'),
 };
 
+// Settings API
+export const settingsAPI = {
+  getBusinessInfo: () => api.get('/settings/business-info'),
+  updateBusinessInfo: (business_info) => api.put('/settings/business-info', { business_info }),
+  getBillingInfo: () => api.get('/settings/billing-info'),
+  updateBillingInfo: (billing_info) => api.put('/settings/billing-info', { billing_info }),
+  getProfileInfo: () => api.get('/settings/profile-info'),
+  updateProfileInfo: (profile_info) => api.put('/settings/profile-info', { profile_info }),
+};
+
 // Products API
 export const productsAPI = {
   getProducts: (page = 1, limit = 20) => 
