@@ -19,7 +19,9 @@ const seedDatabase = async () => {
           name: 'Trial',
           slug: 'trial',
           price: 0,
-          billingCycle: 'free',
+          paymentType: 'one_time',
+          cycleType: 'custom',
+          customDays: 14,
           features: { maxUsers: 2, maxBranches: 1, maxProducts: 50, maxInvoicesPerMonth: 20 },
           description: 'Free 14-day trial with limited features',
           isActive: true,
@@ -29,7 +31,8 @@ const seedDatabase = async () => {
           name: 'Basic',
           slug: 'basic',
           price: 29,
-          billingCycle: 'monthly',
+          paymentType: 'subscription',
+          cycleType: 'monthly',
           features: { maxUsers: 5, maxBranches: 1, maxProducts: 500, maxInvoicesPerMonth: 200 },
           description: 'Perfect for small shops with a single location',
           isActive: true,
@@ -39,7 +42,8 @@ const seedDatabase = async () => {
           name: 'Pro',
           slug: 'pro',
           price: 79,
-          billingCycle: 'monthly',
+          paymentType: 'subscription',
+          cycleType: 'monthly',
           features: { maxUsers: 15, maxBranches: 3, maxProducts: 5000, maxInvoicesPerMonth: 1000 },
           description: 'For growing businesses with multiple branches',
           isActive: true,
@@ -49,7 +53,8 @@ const seedDatabase = async () => {
           name: 'Enterprise',
           slug: 'enterprise',
           price: 199,
-          billingCycle: 'monthly',
+          paymentType: 'subscription',
+          cycleType: 'monthly',
           features: { maxUsers: 100, maxBranches: 20, maxProducts: 50000, maxInvoicesPerMonth: 10000 },
           description: 'Unlimited scale for large enterprises',
           isActive: true,
@@ -57,6 +62,13 @@ const seedDatabase = async () => {
         },
       ]);
       console.log('✅ Default plans created (Trial, Basic, Pro, Enterprise)');
+    }
+
+    const trialPlan = await Plan.findOne({ slug: 'trial' });
+    if (trialPlan && trialPlan.name !== 'Trial') {
+      trialPlan.name = 'Trial';
+      await trialPlan.save();
+      console.log('✅ Trial plan name normalized to "Trial"');
     }
 
     // Seed default platform settings (always check)

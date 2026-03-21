@@ -2,32 +2,54 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
 
-export default function TenantCommonHeader({ title, subtitle, showNav = true, portalLabel = 'Tenant Portal' }) {
+export default function TenantCommonHeader({
+  title,
+  subtitle,
+  showNav = true,
+  portalLabel = 'Tenant Portal',
+  compact = false,
+}) {
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === 'dark';
+  const useCompactLayout = compact || !showNav;
 
   return (
     <header
       className="tenant-header"
       style={{
+        width: '100%',
+        maxWidth: useCompactLayout ? 720 : '100%',
+        margin: '0 auto',
         background: isDark ? '#181f2a' : '#f8fafc',
         borderBottom: isDark ? '1px solid #232a3a' : '1px solid #e5e7eb',
+        borderRadius: useCompactLayout ? 16 : 0,
         color: isDark ? '#f3f4f6' : '#111827',
+        boxShadow: useCompactLayout
+          ? (isDark ? '0 14px 32px rgba(2, 6, 23, 0.28)' : '0 14px 32px rgba(15, 23, 42, 0.12)')
+          : 'none',
+        overflow: 'hidden',
         transition: 'background 0.2s, color 0.2s',
       }}
     >
       <div
         style={{
-          maxWidth: 1280,
+          maxWidth: useCompactLayout ? 720 : 1280,
           margin: '0 auto',
-          padding: '32px 24px',
+          padding: useCompactLayout ? '24px 24px' : '32px 24px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 12,
+          gap: useCompactLayout ? 10 : 12,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-          <div style={{ fontWeight: 700, fontSize: '20px', color: isDark ? '#f3f4f6' : '#111827' }}>
+          <div
+            style={{
+              fontWeight: 700,
+              fontSize: useCompactLayout ? '15px' : '20px',
+              letterSpacing: useCompactLayout ? '0.02em' : 0,
+              color: isDark ? '#f3f4f6' : '#111827',
+            }}
+          >
             {portalLabel}
           </div>
           <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
@@ -35,7 +57,7 @@ export default function TenantCommonHeader({ title, subtitle, showNav = true, po
               <nav style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
                 <Link to="/dashboard" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Dashboard</Link>
                 <Link to="/settings" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Settings</Link>
-                <Link to="/billing" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Billing</Link>
+              
                 <button
                   style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827', background: 'none', border: 'none', cursor: 'pointer' }}
                   onClick={() => {
@@ -53,13 +75,18 @@ export default function TenantCommonHeader({ title, subtitle, showNav = true, po
               title={theme === 'light' ? 'Enable Dark Mode' : 'Enable Light Mode'}
               style={{
                 marginLeft: showNav ? 16 : 0,
-                background: 'none',
-                border: 'none',
+                width: 40,
+                height: 40,
+                borderRadius: 999,
+                border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
+                background: isDark ? '#111827' : '#ffffff',
                 cursor: 'pointer',
                 padding: 0,
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'center',
                 color: isDark ? '#f3f4f6' : '#111827',
+                boxShadow: isDark ? 'none' : '0 1px 2px rgba(15, 23, 42, 0.08)',
               }}
             >
               {theme === 'light' ? (
@@ -86,22 +113,30 @@ export default function TenantCommonHeader({ title, subtitle, showNav = true, po
           <div
             style={{
               display: 'flex',
-              alignItems: 'center',
+              flexDirection: useCompactLayout ? 'column' : 'row',
+              alignItems: useCompactLayout ? 'flex-start' : 'center',
               justifyContent: 'space-between',
               gap: 16,
               marginTop: 4,
             }}
           >
-            <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>{title}</h1>
+            <h1 style={{ fontSize: useCompactLayout ? 22 : 28, fontWeight: 700, margin: 0 }}>{title}</h1>
             {subtitle && (
-              <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}>
+              <div
+                style={{
+                  flex: useCompactLayout ? 'initial' : 1,
+                  display: 'flex',
+                  justifyContent: useCompactLayout ? 'flex-start' : 'flex-end',
+                  width: useCompactLayout ? '100%' : 'auto',
+                }}
+              >
                 <p
                   style={{
                     color: '#6b7280',
                     margin: 0,
-                    textAlign: 'right',
+                    textAlign: useCompactLayout ? 'left' : 'right',
                     maxWidth: 640,
-                    paddingRight: 6,
+                    paddingRight: useCompactLayout ? 0 : 6,
                   }}
                 >
                   {subtitle}

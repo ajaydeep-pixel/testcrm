@@ -1,19 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { authAPI, billingAPI } from '../services/api';
-import TenantCommonHeader from '../components/TenantCommonHeader';
+import { getPlanDisplayName } from '../utils/planDisplay';
+
+const formatPlanPrice = (plan) => {
+  if (!plan || Number(plan.price || 0) === 0) return 'Free';
+  return `$${Number(plan.price).toFixed(2)}`;
+};
+
+const formatPlanDuration = (plan) => {
+  if (!plan) return '';
+  if (plan.paymentType === 'subscription') {
+    return plan.cycleType === 'yearly' ? '/year' : '/month';
+  }
+  if (plan.cycleType === 'custom' && plan.customDays) {
+    return `${plan.customDays} days`;
+  }
+  if (plan.cycleType === 'yearly') return 'Yearly access';
+  if (plan.cycleType === 'monthly') return '30 days';
+  return '';
+};
+
+const formatPlanDescription = (plan) => {
+  if (!plan) return '';
+  if (Number(plan.price || 0) === 0 && plan.cycleType === 'custom' && plan.customDays) {
+    return `${plan.customDays}-day free trial`;
+  }
+  return plan.description || '';
+};
 
 export default function Signup({ onSignupSuccess }) {
   const [step, setStep] = useState('company');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [branding, setBranding] = useState({ appName: '', tagline: '' });
-
-  useEffect(() => {
-    fetch('http://localhost:4000/api/branding')
-      .then(r => r.json())
-      .then(data => setBranding(data))
-      .catch(() => setBranding({ appName: 'BikeFlow', tagline: 'Set up your business in minutes' }));
-  }, []);
 
   // Company info
   const [companyName, setCompanyName] = useState('');
@@ -30,15 +49,50 @@ export default function Signup({ onSignupSuccess }) {
 
   // Plan
   const [selectedPlan, setSelectedPlan] = useState('basic');
-
-  const plans = [
-    { id: 'trial', name: 'Trial', price: 'Free', duration: '14 days', description: '14-day free trial' },
-    { id: 'basic', name: 'Basic', price: '$29.99', duration: '/month', description: 'Up to 1,000 invoices/month' },
-    { id: 'pro', name: 'Pro', price: '$79.99', duration: '/month', description: 'Up to 10,000 invoices/month' },
-  ];
+  const [plans, setPlans] = useState([
+    { id: 'trial', name: 'Trial', priceLabel: 'Free', duration: 'Trial access', description: 'Free starter access' },
+    { id: 'basic', name: 'Basic', priceLabel: '$29.99', duration: '/month', description: 'Up to 1,000 invoices/month' },
+    { id: 'pro', name: 'Pro', priceLabel: '$79.99', duration: '/month', description: 'Up to 10,000 invoices/month' },
+  ]);
 
   const timezones = ['UTC', 'EST', 'CST', 'MST', 'PST', 'IST', 'CET', 'AEST'];
   const currencies = ['USD', 'EUR', 'GBP', 'INR', 'AUD', 'CAD'];
+
+  useEffect(() => {
+    fetch('http://localhost:4000/api/branding')
+      .then(r => r.json())
+      .then(data => setBranding(data))
+      .catch(() => setBranding({ appName: 'BikeFlow', tagline: 'Set up your business in minutes' }));
+  }, []);
+
+  useEffect(() => {
+    const loadPlans = async () => {
+      try {
+        const response = await billingAPI.getPlans();
+        const activePlans = (response.data?.plans || [])
+          .filter((plan) => plan.isActive)
+          .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+          .map((plan) => ({
+            ...plan,
+            id: plan.slug,
+            priceLabel: formatPlanPrice(plan),
+            duration: formatPlanDuration(plan),
+            description: formatPlanDescription(plan),
+          }));
+
+        if (activePlans.length > 0) {
+          setPlans(activePlans);
+          setSelectedPlan((current) => (
+            activePlans.some((plan) => plan.slug === current) ? current : activePlans[0].slug
+          ));
+        }
+      } catch {
+        // Keep the fallback plan cards if plan loading fails.
+      }
+    };
+
+    loadPlans();
+  }, []);
 
   const handleCompanySubmit = (e) => {
     e.preventDefault();
@@ -72,11 +126,14 @@ export default function Signup({ onSignupSuccess }) {
         companyName,
         email,
         password,
-        branchName,
+        branch: {
+          name: branchName,
+          timezone,
+          currency,
+        },
         timezone,
-        currency,
-        gstEnabled,
-        gstNumber,
+        gst_enabled: gstEnabled,
+        gst_number: gstNumber,
         plan: selectedPlan
       };
 
@@ -88,7 +145,7 @@ export default function Signup({ onSignupSuccess }) {
       if (tenant) localStorage.setItem('tenant', JSON.stringify(tenant));
 
       if (selectedPlan !== 'trial') {
-        window.location.href = '/billing/setup';
+        window.location.href = `/checkout/${selectedPlan}`;
       } else {
         onSignupSuccess?.();
       }
@@ -103,12 +160,7 @@ export default function Signup({ onSignupSuccess }) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center px-4 py-8">
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-8">
-        <TenantCommonHeader
-          title={branding.appName || 'BikeFlow'}
-          subtitle={branding.tagline || 'Set up your business in minutes'}
-          portalLabel="Create Account"
-          showNav={false}
-        />
+        
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Welcome to {branding.appName || 'BikeFlow'}</h1>
           <p className="text-gray-600 mt-2">{branding.tagline || 'Set up your business in minutes'}</p>
@@ -321,9 +373,9 @@ export default function Signup({ onSignupSuccess }) {
                       : 'border-gray-300 hover:border-gray-400'
                   }`}
                 >
-                  <h3 className="font-bold text-lg text-gray-900">{plan.name}</h3>
+                  <h3 className="font-bold text-lg text-gray-900">{getPlanDisplayName(plan)}</h3>
                   <p className="text-2xl font-bold text-blue-600 mt-2">
-                    {plan.price}
+                    {plan.priceLabel || plan.price}
                   </p>
                   <p className="text-sm text-gray-600">{plan.duration}</p>
                   <p className="text-xs text-gray-500 mt-2">{plan.description}</p>

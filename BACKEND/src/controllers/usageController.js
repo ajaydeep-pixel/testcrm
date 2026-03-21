@@ -7,6 +7,42 @@ const UsageMeterService = require('../services/UsageMeterService');
 const RateLimiterService = require('../services/RateLimiterService');
 const BillingService = require('../services/BillingService');
 
+const DEFAULT_RATE_LIMIT = {
+  requests: 100,
+  window: 3600,
+};
+
+function buildPlanPayload(planDetails, tenantPlan, planSlug = 'trial') {
+  if (!planDetails) {
+    return {
+      slug: planSlug,
+      status: tenantPlan?.status || null,
+    };
+  }
+
+  return {
+    _id: planDetails._id,
+    name: planDetails.name,
+    slug: planDetails.slug,
+    price: planDetails.price,
+    paymentType: planDetails.paymentType,
+    cycleType: planDetails.cycleType,
+    customDays: planDetails.customDays,
+    billingCycle: planDetails.billingCycle,
+    currency: planDetails.currency,
+    description: planDetails.description,
+    rateLimit: planDetails.rateLimit || DEFAULT_RATE_LIMIT,
+    status: tenantPlan?.status || null,
+  };
+}
+
+function getRateLimitConfig(planDetails) {
+  return {
+    requests: planDetails?.rateLimit?.requests || DEFAULT_RATE_LIMIT.requests,
+    window: planDetails?.rateLimit?.window || DEFAULT_RATE_LIMIT.window,
+  };
+}
+
 /**
  * GET /api/usage/current
  * Get current month's usage and compare to plan limits
@@ -14,14 +50,17 @@ const BillingService = require('../services/BillingService');
 exports.getCurrentUsage = async (req, res) => {
   try {
     const tenantId = req.tenantId;
-    const tenant = req.tenant;
+    const planSlug = req.planSlug || 'trial';
+    const planDetails = req.planDetails || null;
+    const tenantPlan = req.tenantPlan || null;
 
     const usage = await UsageMeterService.getMonthlyUsage(tenantId);
     const limits = await BillingService.checkUsageLimits(tenantId);
 
     res.json({
       month: UsageMeterService.getCurrentMonth(),
-      plan: tenant.plan,
+      plan: buildPlanPayload(planDetails, tenantPlan, planSlug),
+      planSlug,
       usage,
       limits: limits.limits,
       exceeded: limits.exceeded,
@@ -44,27 +83,23 @@ exports.getCurrentUsage = async (req, res) => {
 exports.getRateLimitStatus = async (req, res) => {
   try {
     const tenantId = req.tenantId;
-    const tenant = req.tenant;
-
-    const planLimits = {
-      trial: { requests: 100, window: 3600 },
-      basic: { requests: 1000, window: 3600 },
-      pro: { requests: 10000, window: 3600 },
-      enterprise: { requests: 100000, window: 3600 },
-    };
-
-    const limits = planLimits[tenant.plan] || planLimits.trial;
+    const planSlug = req.planSlug || 'trial';
+    const planDetails = req.planDetails || null;
+    const tenantPlan = req.tenantPlan || null;
+    const rateLimitConfig = getRateLimitConfig(planDetails);
     const rateLimitKey = `tenant:${tenantId}`;
 
-    const usage = await RateLimiterService.getUsage(rateLimitKey, limits.window);
+    const usage = await RateLimiterService.getUsage(rateLimitKey, rateLimitConfig.window);
 
     res.json({
-      plan: tenant.plan,
-      limit: limits.requests,
-      window: limits.window,
+      plan: buildPlanPayload(planDetails, tenantPlan, planSlug),
+      planSlug,
+      rateLimit: rateLimitConfig,
+      limit: rateLimitConfig.requests,
+      window: rateLimitConfig.window,
       current: usage.current,
-      remaining: Math.max(0, limits.requests - usage.current),
-      percentUsed: Math.round((usage.current / limits.requests) * 100),
+      remaining: Math.max(0, rateLimitConfig.requests - usage.current),
+      percentUsed: Math.round((usage.current / rateLimitConfig.requests) * 100),
     });
   } catch (err) {
     console.error('Error getting rate limit status:', err);
@@ -122,25 +157,21 @@ exports.getDashboard = async (req, res) => {
   try {
     const tenantId = req.tenantId;
     const tenant = req.tenant;
+    const planSlug = req.planSlug || 'trial';
+    const planDetails = req.planDetails || null;
+    const tenantPlan = req.tenantPlan || null;
+    const rateLimitConfig = getRateLimitConfig(planDetails);
 
     const usage = await UsageMeterService.getMonthlyUsage(tenantId);
     const limits = await BillingService.checkUsageLimits(tenantId);
-
-    const planLimits = {
-      trial: { requests: 100, window: 3600 },
-      basic: { requests: 1000, window: 3600 },
-      pro: { requests: 10000, window: 3600 },
-      enterprise: { requests: 100000, window: 3600 },
-    };
-
-    const plan = planLimits[tenant.plan] || planLimits.trial;
     const rateLimitKey = `tenant:${tenantId}`;
-    const rateUsage = await RateLimiterService.getUsage(rateLimitKey, plan.window);
+    const rateUsage = await RateLimiterService.getUsage(rateLimitKey, rateLimitConfig.window);
 
     res.json({
       tenant: {
         name: tenant.name,
-        plan: tenant.plan,
+        plan: buildPlanPayload(planDetails, tenantPlan, planSlug),
+        planSlug,
         status: tenant.status,
       },
       usage: {
@@ -153,11 +184,11 @@ exports.getDashboard = async (req, res) => {
         exceeded: limits.exceeded,
       },
       rateLimit: {
-        window: plan.window,
-        limit: plan.requests,
+        window: rateLimitConfig.window,
+        limit: rateLimitConfig.requests,
         current: rateUsage.current,
-        remaining: Math.max(0, plan.requests - rateUsage.current),
-        percentUsed: Math.round((rateUsage.current / plan.requests) * 100),
+        remaining: Math.max(0, rateLimitConfig.requests - rateUsage.current),
+        percentUsed: Math.round((rateUsage.current / rateLimitConfig.requests) * 100),
       },
       warnings: [],
     });

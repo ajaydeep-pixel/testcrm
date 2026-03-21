@@ -4,6 +4,7 @@ import { billingAPI } from '../services/api';
 import TenantCommonHeader from '../components/TenantCommonHeader';
 import SuperadminReturnBar from '../components/SuperadminReturnBar';
 import { useToast } from '../components/Toast';
+import { getPlanDisplayName } from '../utils/planDisplay';
 
 export default function CheckoutSuccess() {
   const [searchParams] = useSearchParams();
@@ -32,14 +33,8 @@ export default function CheckoutSuccess() {
 
       if (data.status === 'active') {
         setStatus('success');
-        setPlanName(data.plan);
+        setPlanName(getPlanDisplayName(data.plan));
         setSubscription(data.subscription);
-
-        try {
-          const tenant = JSON.parse(localStorage.getItem('tenant') || '{}');
-          tenant.plan = data.plan;
-          localStorage.setItem('tenant', JSON.stringify(tenant));
-        } catch {}
 
         toast.success('Subscription activated successfully!');
       } else if (data.status === 'pending') {

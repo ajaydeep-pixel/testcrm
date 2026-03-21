@@ -5,6 +5,7 @@
  */
 
 const Tenant = require('../models/Tenant');
+const { getCurrentTenantPlan, resolvePlanForTenantPlan, getPlanSlug, isTrialExpired } = require('../utils/tenantPlanState');
 
 /**
  * Extract tenant from JWT token and attach to request
@@ -42,18 +43,20 @@ exports.verifyTenantAccess = async (req, res, next) => {
       return res.status(403).json({ message: 'Tenant account is suspended' });
     }
 
-    // Check if trial expired and no active subscription
-    if (tenant.plan === 'trial') {
-      const trialExpiry = new Date(tenant.trialEndAt);
-      if (new Date() > trialExpiry) {
-        return res.status(403).json({ 
-          message: 'Trial period expired. Please upgrade to a paid plan.' 
-        });
-      }
+    const tenantPlan = await getCurrentTenantPlan(tenant._id);
+    const plan = await resolvePlanForTenantPlan(tenantPlan);
+
+    if (tenantPlan && isTrialExpired(tenantPlan)) {
+      return res.status(403).json({
+        message: 'Trial period expired. Please upgrade to a paid plan.'
+      });
     }
 
     // Attach tenant details to request
     req.tenant = tenant;
+    req.tenantPlan = tenantPlan || null;
+    req.planDetails = plan || null;
+    req.planSlug = getPlanSlug(tenantPlan, plan) || 'trial';
     next();
   } catch (err) {
     res.status(500).json({ message: 'Error verifying tenant access', error: err.message });

@@ -62,7 +62,7 @@ exports.checkUsageAndWarn = async (req, res, next) => {
 
   try {
     const usage = await UsageMeterService.getMonthlyUsage(req.tenantId);
-    const plan = req.tenant.plan;
+    const plan = req.planSlug || 'trial';
 
     const limits = {
       basic: { apiCalls: 100000, invoiceCount: 1000, storageMB: 5000 },

@@ -1,9 +1,12 @@
 const User = require('../models/User');
 const Tenant = require('../models/Tenant');
+const Plan = require('../models/Plan');
+const TenantPlan = require('../models/TenantPlan');
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 const AuthService = require('../services/AuthService');
 const SessionService = require('../services/SessionService');
+const { getCurrentTenantPlan, isTrialExpired } = require('../utils/tenantPlanState');
 
 /**
  * TENANT ONBOARDING (Signup)
@@ -29,15 +32,21 @@ exports.signupTenant = async (req, res) => {
       return res.status(409).json({ message: 'Email already registered' });
     }
 
-    // Create Tenant (14-day trial)
+    const trialPlan = await Plan.findOne({ slug: 'trial', isActive: true });
+    if (!trialPlan) {
+      return res.status(500).json({ message: 'Trial plan is not configured. Please seed plans first.' });
+    }
+
+    const trialDurationDays = Number(trialPlan.customDays || 14);
+    const trialStartAt = new Date();
+    const trialEndAt = new Date(Date.now() + trialDurationDays * 24 * 60 * 60 * 1000);
+
+    // Create Tenant
     const tenant = new Tenant({
       _id: new mongoose.Types.ObjectId(),
       name: companyName,
       email,
       status: 'active',
-      plan: 'trial',
-      trialStartAt: new Date(),
-      trialEndAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
       branches: [
         {
           _id: new mongoose.Types.ObjectId(),
@@ -59,6 +68,26 @@ exports.signupTenant = async (req, res) => {
     });
 
     await tenant.save();
+
+    const tenantPlan = new TenantPlan({
+      tenantId: tenant._id,
+      planId: trialPlan._id,
+      status: 'trialing',
+      gateway: null,
+      startDate: trialStartAt,
+      currentPeriodStart: trialStartAt,
+      currentPeriodEnd: trialEndAt,
+      nextBillingDate: trialEndAt,
+      cancelAtPeriodEnd: false,
+      renewalInterval: 'custom',
+      metadata: {
+        planSlug: trialPlan.slug,
+        source: 'signup_trial',
+        customDays: trialDurationDays,
+      },
+    });
+
+    await tenantPlan.save();
 
     // Create Admin User
     const passwordHash = await bcrypt.hash(password, 10);
@@ -92,8 +121,9 @@ exports.signupTenant = async (req, res) => {
       tenant: {
         _id: tenant._id,
         name: tenant.name,
-        plan: tenant.plan,
-        trialEndAt: tenant.trialEndAt,
+        plan: trialPlan.slug,
+        trialEndAt,
+        activeTenantPlanId: tenantPlan._id,
       },
       user: {
         _id: user._id,
@@ -162,11 +192,10 @@ exports.login = async (req, res) => {
         return res.status(403).json({ message: 'Tenant account suspended' });
       }
 
-      if (tenant.plan === 'trial') {
-        const trialExpiry = new Date(tenant.trialEndAt);
-        if (new Date() > trialExpiry) {
-          return res.status(403).json({ message: 'Trial expired. Please upgrade to a paid plan.' });
-        }
+      const tenantPlan = await getCurrentTenantPlan(tenant._id);
+
+      if (tenantPlan && isTrialExpired(tenantPlan)) {
+        return res.status(403).json({ message: 'Trial expired. Please upgrade to a paid plan.' });
       }
     }
 

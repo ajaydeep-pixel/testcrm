@@ -10,18 +10,6 @@ import PaymentHistory from './PaymentHistory';
 export default function SettingsMenu() {
   const [selectedTab, setSelectedTab] = React.useState(0);
 
-  // Example data for subscription and payment history
-  const subscriptionDetails = {
-    plan: 'Pro',
-    price: '$79.99',
-    status: 'Active',
-    nextBilling: '2026-04-01',
-  };
-  const paymentHistory = [
-    { date: '2026-03-01', amount: '$79.99', invoiceUrl: '#' },
-    { date: '2026-02-01', amount: '$79.99', invoiceUrl: '#' },
-  ];
-
   const styles = {
     page: {
       minHeight: '100vh',
@@ -313,8 +301,8 @@ export default function SettingsMenu() {
     { label: 'Billing Info', component: <BillingInfo styles={styles} /> },
     { label: 'Profile Info', component: <ProfileInfo styles={styles} /> },
     { label: 'Password', component: <PasswordChange styles={styles} /> },
-    { label: 'Subscription Details', component: <SubscriptionDetails details={subscriptionDetails} styles={styles} /> },
-    { label: 'Payment History & Invoices', component: <PaymentHistory history={paymentHistory} styles={styles} /> },
+    { label: 'Subscription Details', component: <SubscriptionDetails styles={styles} /> },
+    { label: 'Payment History & Invoices', component: <PaymentHistory styles={styles} /> },
   ];
 
   return (

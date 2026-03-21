@@ -5,6 +5,11 @@
 
 const RateLimiter = require('../services/RateLimiterService');
 
+const DEFAULT_RATE_LIMIT = {
+  requests: 100,
+  window: 3600,
+};
+
 /**
  * Rate limit middleware - per tenant
  * Usage: app.use('/api/', rateLimitTenant())
@@ -17,16 +22,10 @@ exports.rateLimitTenant = (options = {}) => {
       return next();
     }
 
-    // Different limits per plan
-    const planLimits = {
-      trial: { requests: 100, window: 3600 }, // 100 req/hour
-      basic: { requests: 1000, window: 3600 }, // 1000 req/hour
-      pro: { requests: 10000, window: 3600 }, // 10k req/hour
-      enterprise: { requests: 100000, window: 3600 }, // 100k req/hour
+    const limits = {
+      requests: req.planDetails?.rateLimit?.requests || DEFAULT_RATE_LIMIT.requests,
+      window: req.planDetails?.rateLimit?.window || DEFAULT_RATE_LIMIT.window,
     };
-
-    const plan = req.tenant?.plan || 'trial';
-    const limits = planLimits[plan] || planLimits.trial;
 
     const rateLimitKey = `tenant:${req.tenantId}`;
 

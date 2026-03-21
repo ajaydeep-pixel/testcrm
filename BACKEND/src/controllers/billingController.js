@@ -7,6 +7,7 @@ const BillingService = require('../services/BillingService');
 const Tenant = require('../models/Tenant');
 const Invoice = require('../models/Invoice');
 const Plan = require('../models/Plan');
+const TenantPlan = require('../models/TenantPlan');
 
 /**
  * GET /api/billing/plans (public)
@@ -112,14 +113,48 @@ exports.changePlan = async (req, res) => {
       });
     }
 
-    // Cannot switch to free plan if they have an active subscription
-    if (tenant.subscription?.status === 'active') {
+    const currentTenantPlan = await TenantPlan.findOne({
+      tenantId: req.tenantId,
+      status: { $in: ['active', 'canceling', 'past_due', 'incomplete'] },
+    }).sort({ createdAt: -1 });
+
+    // Cannot switch to free/custom one-time plan if a recurring paid subscription is still active
+    if (currentTenantPlan?.gatewaySubscriptionId) {
       return res.status(400).json({ message: 'Cancel your current subscription before switching plans' });
     }
 
-    tenant.plan = newPlanName;
-    await tenant.save();
-    res.json({ message: 'Plan changed successfully', plan: tenant.plan });
+    const now = new Date();
+    if (currentTenantPlan) {
+      currentTenantPlan.status = currentTenantPlan.status === 'trialing' ? 'expired' : 'canceled';
+      currentTenantPlan.endedAt = now;
+      currentTenantPlan.cancelAtPeriodEnd = false;
+      await currentTenantPlan.save();
+    }
+
+    const durationDays = plan.cycleType === 'custom' ? Number(plan.customDays || 0) : plan.cycleType === 'yearly' ? 365 : 30;
+    const currentPeriodEnd = durationDays ? new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000) : null;
+
+    const tenantPlan = new TenantPlan({
+      tenantId: tenant._id,
+      planId: plan._id,
+      status: plan.price === 0 ? 'active' : 'incomplete',
+      gateway: null,
+      startDate: now,
+      currentPeriodStart: now,
+      currentPeriodEnd,
+      nextBillingDate: null,
+      renewalInterval: plan.cycleType === 'custom' ? 'custom' : plan.paymentType === 'subscription' ? plan.cycleType : 'one-time',
+      previousTenantPlanId: currentTenantPlan?._id || null,
+      usage: currentTenantPlan?.usage || undefined,
+      metadata: {
+        planSlug: plan.slug,
+        source: 'billing_change_plan',
+      },
+    });
+
+    await tenantPlan.save();
+
+    res.json({ message: 'Plan changed successfully', plan: plan.slug });
   } catch (err) {
     res.status(500).json({ message: 'Failed to change plan', error: err.message });
   }

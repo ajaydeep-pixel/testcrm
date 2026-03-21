@@ -9,6 +9,9 @@ import { apiService } from '../services/apiService';
 import { useToast } from './Toast';
 import styles from './SuperadminDashboard.module.css';
 import { useTheme } from '../context/ThemeContext';
+import { getPlanDisplayName } from '../utils/planDisplay';
+
+const formatPlanLabel = (tenant) => getPlanDisplayName({ slug: tenant?.plan, name: tenant?.planName }, tenant?.plan);
 
 const SuperadminDashboard = () => {
   const toast = useToast();
@@ -42,7 +45,23 @@ const SuperadminDashboard = () => {
   const [pwdForm, setPwdForm] = useState({ password: '', confirmPassword: '' });
   const [plans, setPlans] = useState([]);
   const [editingPlan, setEditingPlan] = useState(null);
-  const [planForm, setPlanForm] = useState({ name: '', slug: '', price: 0, billingCycle: 'monthly', description: '', isActive: true, sortOrder: 0, maxUsers: 1, maxBranches: 1, maxProducts: 100, maxInvoicesPerMonth: 50 });
+  const [planForm, setPlanForm] = useState({
+    name: '',
+    slug: '',
+    price: 0,
+    paymentType: 'subscription',
+    cycleType: 'monthly',
+    customDays: 14,
+    description: '',
+    isActive: true,
+    sortOrder: 0,
+    maxUsers: 1,
+    maxBranches: 1,
+    maxProducts: 100,
+    maxInvoicesPerMonth: 50,
+    rateLimitRequests: 100,
+    rateLimitWindow: 3600,
+  });
   const [showPlanForm, setShowPlanForm] = useState(false);
   const [tenantDetailTab, setTenantDetailTab] = useState('overview');
   const { theme, toggleTheme } = useTheme();
@@ -192,16 +211,37 @@ const SuperadminDashboard = () => {
       setEditingPlan(plan._id);
       setPlanForm({
         name: plan.name, slug: plan.slug, price: plan.price,
-        billingCycle: plan.billingCycle, description: plan.description || '',
+        paymentType: plan.paymentType || 'subscription',
+        cycleType: plan.cycleType || 'monthly',
+        customDays: plan.customDays || 14,
+        description: plan.description || '',
         isActive: plan.isActive, sortOrder: plan.sortOrder || 0,
         maxUsers: plan.features?.maxUsers || 1,
         maxBranches: plan.features?.maxBranches || 1,
         maxProducts: plan.features?.maxProducts || 100,
         maxInvoicesPerMonth: plan.features?.maxInvoicesPerMonth || 50,
+        rateLimitRequests: plan.rateLimit?.requests || 100,
+        rateLimitWindow: plan.rateLimit?.window || 3600,
       });
     } else {
       setEditingPlan(null);
-      setPlanForm({ name: '', slug: '', price: 0, billingCycle: 'monthly', description: '', isActive: true, sortOrder: 0, maxUsers: 1, maxBranches: 1, maxProducts: 100, maxInvoicesPerMonth: 50 });
+      setPlanForm({
+        name: '',
+        slug: '',
+        price: 0,
+        paymentType: 'subscription',
+        cycleType: 'monthly',
+        customDays: 14,
+        description: '',
+        isActive: true,
+        sortOrder: 0,
+        maxUsers: 1,
+        maxBranches: 1,
+        maxProducts: 100,
+        maxInvoicesPerMonth: 50,
+        rateLimitRequests: 100,
+        rateLimitWindow: 3600,
+      });
     }
     setShowPlanForm(true);
   };
@@ -215,13 +255,20 @@ const SuperadminDashboard = () => {
     try {
       const payload = {
         name: planForm.name, slug: planForm.slug, price: Number(planForm.price),
-        billingCycle: planForm.billingCycle, description: planForm.description,
+        paymentType: planForm.paymentType,
+        cycleType: planForm.cycleType,
+        customDays: planForm.cycleType === 'custom' ? Number(planForm.customDays) : null,
+        description: planForm.description,
         isActive: planForm.isActive, sortOrder: Number(planForm.sortOrder),
         features: {
           maxUsers: Number(planForm.maxUsers),
           maxBranches: Number(planForm.maxBranches),
           maxProducts: Number(planForm.maxProducts),
           maxInvoicesPerMonth: Number(planForm.maxInvoicesPerMonth),
+        },
+        rateLimit: {
+          requests: Number(planForm.rateLimitRequests),
+          window: Number(planForm.rateLimitWindow),
         },
       };
       if (editingPlan) {
@@ -618,7 +665,7 @@ const SuperadminDashboard = () => {
                         <div className={styles.tdInfoGrid}>
                           <div className={styles.tdInfoItem}>
                             <span className={styles.tdInfoLabel}>Current Plan</span>
-                            <span className={styles.tdInfoValue} style={{ textTransform: 'capitalize' }}>{tenantDetails.tenant.plan}</span>
+                            <span className={styles.tdInfoValue}>{formatPlanLabel(tenantDetails.tenant)}</span>
                           </div>
                           <div className={styles.tdInfoItem}>
                             <span className={styles.tdInfoLabel}>Trial Days Remaining</span>
@@ -887,7 +934,7 @@ const SuperadminDashboard = () => {
                         </div>
                         <div className={styles.tdSideRow}>
                           <span className={styles.tdSideLabel}>Plan</span>
-                          <span className={styles.tdSideValue} style={{ textTransform: 'capitalize' }}>{tenantDetails.tenant.plan}</span>
+                          <span className={styles.tdSideValue}>{formatPlanLabel(tenantDetails.tenant)}</span>
                         </div>
                         <div className={styles.tdSideRow}>
                           <span className={styles.tdSideLabel}>Tenant ID</span>
@@ -938,9 +985,9 @@ const SuperadminDashboard = () => {
                     <tr key={tenant._id}>
                       <td>{tenant.name}</td>
                       <td>{tenant.email}</td>
-                      <td>{tenant.plan}</td>
+                      <td>{formatPlanLabel(tenant)}</td>
                       <td>{tenant.status}</td>
-                      <td>{new Date(tenant.trialEndAt).toLocaleDateString()}</td>
+                      <td>{tenant.trialEndAt ? new Date(tenant.trialEndAt).toLocaleDateString() : 'N/A'}</td>
                       <td>{tenant.usage?.activeUsers || 0}</td>
                       <td className={styles.actions}>
                         <button
@@ -1145,12 +1192,18 @@ const SuperadminDashboard = () => {
                     <input type="number" min="0" value={planForm.price} onChange={(e) => setPlanForm({ ...planForm, price: e.target.value })} />
                   </div>
                   <div className={styles.formGroup}>
-                    <label>Billing Cycle</label>
-                    <select value={planForm.billingCycle} onChange={(e) => setPlanForm({ ...planForm, billingCycle: e.target.value })} style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}>
-                      <option value="free">Free</option>
+                    <label>Payment Type</label>
+                    <select value={planForm.paymentType} onChange={(e) => setPlanForm({ ...planForm, paymentType: e.target.value, cycleType: e.target.value === 'subscription' && planForm.cycleType === 'custom' ? 'monthly' : planForm.cycleType })} style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}>
+                      <option value="subscription">Subscription</option>
+                      <option value="one_time">One-Time</option>
+                    </select>
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Cycle Type</label>
+                    <select value={planForm.cycleType} onChange={(e) => setPlanForm({ ...planForm, cycleType: e.target.value })} style={{ padding: '10px 12px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}>
                       <option value="monthly">Monthly</option>
                       <option value="yearly">Yearly</option>
-                      <option value="one-time">One-Time</option>
+                      {planForm.paymentType === 'one_time' && <option value="custom">Custom</option>}
                     </select>
                   </div>
                   <div className={styles.formGroup}>
@@ -1165,6 +1218,14 @@ const SuperadminDashboard = () => {
                     </select>
                   </div>
                 </div>
+                {planForm.cycleType === 'custom' && (
+                  <div className={styles.settingsGrid}>
+                    <div className={styles.formGroup}>
+                      <label>Custom Days</label>
+                      <input type="number" min="1" value={planForm.customDays} onChange={(e) => setPlanForm({ ...planForm, customDays: e.target.value })} />
+                    </div>
+                  </div>
+                )}
                 <div className={styles.formGroup} style={{ marginTop: '12px' }}>
                   <label>Description</label>
                   <input type="text" value={planForm.description} onChange={(e) => setPlanForm({ ...planForm, description: e.target.value })} placeholder="Brief description of the plan" />
@@ -1186,6 +1247,17 @@ const SuperadminDashboard = () => {
                   <div className={styles.formGroup}>
                     <label>Max Invoices/Month</label>
                     <input type="number" min="1" value={planForm.maxInvoicesPerMonth} onChange={(e) => setPlanForm({ ...planForm, maxInvoicesPerMonth: e.target.value })} />
+                  </div>
+                </div>
+                <h4 style={{ margin: '16px 0 8px', fontSize: '14px', color: '#555' }}>Rate Limits</h4>
+                <div className={styles.settingsGrid}>
+                  <div className={styles.formGroup}>
+                    <label>Requests Per Window</label>
+                    <input type="number" min="1" value={planForm.rateLimitRequests} onChange={(e) => setPlanForm({ ...planForm, rateLimitRequests: e.target.value })} />
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label>Window (Seconds)</label>
+                    <input type="number" min="1" value={planForm.rateLimitWindow} onChange={(e) => setPlanForm({ ...planForm, rateLimitWindow: e.target.value })} />
                   </div>
                 </div>
                 <div style={{ marginTop: '16px', display: 'flex', gap: '10px' }}>
@@ -1211,6 +1283,7 @@ const SuperadminDashboard = () => {
                   <th>Branches</th>
                   <th>Products</th>
                   <th>Invoices/Mo</th>
+                  <th>Rate Limit</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -1222,11 +1295,17 @@ const SuperadminDashboard = () => {
                     <td><strong>{plan.name}</strong></td>
                     <td><code>{plan.slug}</code></td>
                     <td>${plan.price}</td>
-                    <td>{plan.billingCycle}</td>
+                    <td>
+                      {plan.paymentType === 'subscription' ? 'Subscription' : 'One-Time'}
+                      <div style={{ fontSize: 12, color: '#6b7280' }}>
+                        {plan.cycleType === 'custom' ? `${plan.customDays || 0} days` : plan.cycleType}
+                      </div>
+                    </td>
                     <td>{plan.features?.maxUsers}</td>
                     <td>{plan.features?.maxBranches}</td>
                     <td>{plan.features?.maxProducts}</td>
                     <td>{plan.features?.maxInvoicesPerMonth}</td>
+                    <td>{plan.rateLimit?.requests || 100} / {plan.rateLimit?.window || 3600}s</td>
                     <td>
                       <span style={{ padding: '2px 8px', borderRadius: '12px', fontSize: '12px', background: plan.isActive ? '#d1fae5' : '#fee2e2', color: plan.isActive ? '#065f46' : '#991b1b' }}>
                         {plan.isActive ? 'Active' : 'Inactive'}
@@ -1239,7 +1318,7 @@ const SuperadminDashboard = () => {
                   </tr>
                 ))}
                 {plans.length === 0 && (
-                  <tr><td colSpan="11" style={{ textAlign: 'center', padding: '20px', color: '#999' }}>No plans found</td></tr>
+                  <tr><td colSpan="12" style={{ textAlign: 'center', padding: '20px', color: '#999' }}>No plans found</td></tr>
                 )}
               </tbody>
             </table>

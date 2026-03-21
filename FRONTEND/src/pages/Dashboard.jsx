@@ -11,6 +11,21 @@ import TenantCommonHeader from '../components/TenantCommonHeader';
 import SuperadminReturnBar from '../components/SuperadminReturnBar';
 import { format } from 'date-fns';
 import { useTheme } from '../context/ThemeContext';
+import { getPlanDisplayName } from '../utils/planDisplay';
+
+const formatPlanPriceLabel = (plan) => {
+  if (!plan) return 'N/A';
+  if (plan.price === 0) return 'Free';
+  if (plan.paymentType === 'subscription') {
+    const cycleLabel = plan.cycleType === 'custom'
+      ? `${plan.customDays || 0} days`
+      : plan.cycleType === 'yearly'
+        ? 'year'
+        : 'month';
+    return `$${plan.price}/${cycleLabel}`;
+  }
+  return `$${plan.price} one-time`;
+};
 
 export default function Dashboard() {
   const toast = useToast();
@@ -22,7 +37,7 @@ export default function Dashboard() {
   const [topProducts, setTopProducts] = useState([]);
   const [error, setError] = useState(null);
   const [plans, setPlans] = useState([]);
-  const [currentPlan, setCurrentPlan] = useState(null);
+  const [currentPlanSlug, setCurrentPlanSlug] = useState(null);
   const [subscription, setSubscription] = useState(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [canceling, setCanceling] = useState(false);
@@ -66,15 +81,8 @@ export default function Dashboard() {
       setPlans(plansRes.data?.plans || []);
       setSubscription(subRes.data);
 
-      const planSlug = subRes.data?.plan || 'trial';
-      setCurrentPlan(planSlug);
-
-      // Sync localStorage
-      try {
-        const tenant = JSON.parse(localStorage.getItem('tenant') || '{}');
-        tenant.plan = planSlug;
-        localStorage.setItem('tenant', JSON.stringify(tenant));
-      } catch {}
+      const planSlug = subRes.data?.plan || usage.data?.tenant?.planSlug || 'trial';
+      setCurrentPlanSlug(planSlug);
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
       setError('Failed to load dashboard data');
@@ -86,6 +94,11 @@ export default function Dashboard() {
   const hasActivePaidSubscription = subscription?.hasActiveSubscription && subscription?.isPaid;
   const subscriptionStatus = subscription?.subscription?.status;
   const isCanceling = subscriptionStatus === 'canceling';
+  const currentPlanDetails = subscription?.planDetails
+    || dashboardData?.tenant?.plan
+    || plans.find((plan) => plan.slug === currentPlanSlug)
+    || null;
+  const currentPlanName = getPlanDisplayName(currentPlanDetails, currentPlanSlug || 'trial');
 
   const handlePlanAction = (planSlug) => {
     const plan = plans.find(p => p.slug === planSlug);
@@ -112,12 +125,7 @@ export default function Dashboard() {
   const handleFreePlanSwitch = async (planSlug) => {
     try {
       await billingAPI.changePlan(planSlug);
-      setCurrentPlan(planSlug);
-      try {
-        const tenant = JSON.parse(localStorage.getItem('tenant') || '{}');
-        tenant.plan = planSlug;
-        localStorage.setItem('tenant', JSON.stringify(tenant));
-      } catch {}
+      setCurrentPlanSlug(planSlug);
       setShowUpgradeModal(false);
       toast.success(`Switched to ${planSlug} plan`);
       fetchDashboardData();
@@ -282,15 +290,15 @@ export default function Dashboard() {
           )}
 
           {(() => {
-            const activePlan = plans.find(p => p.slug === currentPlan);
+            const activePlan = currentPlanDetails;
             return activePlan ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Current Plan Info */}
                 <div className="border border-blue-200 bg-blue-50 rounded-lg p-5">
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-lg font-bold text-blue-800">{activePlan.name} Plan</h3>
+                    <h3 className="text-lg font-bold text-blue-800">{getPlanDisplayName(activePlan)} Plan</h3>
                     <span className="text-sm font-semibold bg-blue-200 text-blue-800 px-3 py-1 rounded-full">
-                      {activePlan.billingCycle === 'free' ? 'Free' : `$${activePlan.price}/${activePlan.billingCycle}`}
+                      {formatPlanPriceLabel(activePlan)}
                     </span>
                   </div>
                   {activePlan.description && <p className="text-sm text-blue-700 mb-3">{activePlan.description}</p>}
@@ -340,7 +348,7 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="text-center py-6 text-gray-500">
-                <p className="capitalize text-lg font-semibold">{currentPlan} Plan</p>
+                <p className="text-lg font-semibold">{currentPlanName} Plan</p>
                 <p className="text-sm mt-1">Plan details loading...</p>
               </div>
             );
@@ -367,9 +375,9 @@ export default function Dashboard() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {plans.map(plan => {
-                const isCurrent = plan.slug === currentPlan;
+                const isCurrent = plan.slug === currentPlanSlug;
                 const isPaid = plan.price > 0;
-                const currentIdx = plans.findIndex(p => p.slug === currentPlan);
+                const currentIdx = plans.findIndex(p => p.slug === currentPlanSlug);
                 const planIdx = plans.indexOf(plan);
                 const isUpgrade = planIdx > currentIdx;
                 const blocked = isPaid && hasActivePaidSubscription && !isCanceling && !isCurrent;
@@ -387,10 +395,16 @@ export default function Dashboard() {
                         Current
                       </div>
                     )}
-                    <h3 className="text-lg font-bold text-gray-900 mt-1">{plan.name}</h3>
+                    <h3 className="text-lg font-bold text-gray-900 mt-1">{getPlanDisplayName(plan)}</h3>
                     <div className="mt-2">
                       <span className="text-3xl font-bold text-gray-900">${plan.price}</span>
-                      {plan.billingCycle !== 'free' && <span className="text-sm text-gray-500">/{plan.billingCycle === 'yearly' ? 'yr' : 'mo'}</span>}
+                      {plan.price > 0 && (
+                        <span className="text-sm text-gray-500">
+                          {plan.paymentType === 'subscription'
+                            ? `/${plan.cycleType === 'custom' ? `${plan.customDays || 0}d` : plan.cycleType === 'yearly' ? 'yr' : 'mo'}`
+                            : ' one-time'}
+                        </span>
+                      )}
                     </div>
                     {plan.description && <p className="text-sm text-gray-500 mt-2">{plan.description}</p>}
                     <ul className="mt-4 space-y-2 text-sm text-gray-600">

@@ -1,80 +1,92 @@
-import React, { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { billingAPI } from "../services/api";
-import TenantCommonHeader from "../components/TenantCommonHeader";
-import { useToast } from "../components/Toast";
+import React, { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { billingAPI } from '../services/api';
+import TenantCommonHeader from '../components/TenantCommonHeader';
+import { useToast } from '../components/Toast';
+import { getPlanDisplayName } from '../utils/planDisplay';
 
 export default function CheckoutPage() {
-  const { id } = useParams();
+  const { planSlug } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
 
   const [plan, setPlan] = useState(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
-  const [hasActiveSubscription, setHasActiveSubscription] = useState(false);
+  const [hasActivePaidSubscription, setHasActivePaidSubscription] = useState(false);
   const [subscription, setSubscription] = useState(null);
 
   useEffect(() => {
-    async function fetchPlan() {
+    async function fetchCheckoutData() {
       setLoading(true);
       try {
-        const res = await billingAPI.get(`/plans/${id}`);
-        setPlan(res.data.plan);
-        setHasActiveSubscription(res.data.hasActiveSubscription);
-        setSubscription(res.data.subscription);
+        const [plansRes, subscriptionRes] = await Promise.all([
+          billingAPI.getPlans(),
+          billingAPI.getSubscriptionStatus(),
+        ]);
+
+        const selectedPlan = (plansRes.data?.plans || []).find((item) => item.slug === planSlug);
+        if (!selectedPlan) {
+          toast.error('Plan not found');
+          navigate('/dashboard');
+          return;
+        }
+
+        setPlan(selectedPlan);
+        setSubscription(subscriptionRes.data || null);
+        setHasActivePaidSubscription(Boolean(subscriptionRes.data?.hasActiveSubscription && subscriptionRes.data?.isPaid));
       } catch (err) {
-        toast.error("Failed to load plan");
+        toast.error(err?.response?.data?.message || 'Failed to load checkout');
       } finally {
         setLoading(false);
       }
     }
 
-    fetchPlan();
-  }, [id, toast]);
+    fetchCheckoutData();
+  }, [planSlug, navigate, toast]);
 
   const handleCheckout = async () => {
+    if (!planSlug) return;
+
     setProcessing(true);
     try {
-      const res = await billingAPI.post(`/checkout/${id}`);
-      if (res.data.url) {
+      const res = await billingAPI.createCheckoutSession(planSlug);
+      if (res.data?.url) {
         window.location.href = res.data.url;
       } else {
-        toast.error("Failed to create checkout session");
+        toast.error('Failed to create checkout session');
       }
     } catch (err) {
-      toast.error(err?.response?.data?.message || "Failed to start checkout");
+      toast.error(err?.response?.data?.message || 'Failed to start checkout');
     } finally {
       setProcessing(false);
     }
   };
 
-  /* ---------------- LOADING ---------------- */
-
   if (loading) {
     return (
       <div
         style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background: "#f9fafb",
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#f9fafb',
         }}
       >
-        <div style={{ textAlign: "center" }}>
+        <div style={{ textAlign: 'center' }}>
           <div
             style={{
               width: 40,
               height: 40,
-              border: "4px solid #e5e7eb",
-              borderTop: "4px solid #2563eb",
-              borderRadius: "50%",
-              animation: "spin 1s linear infinite",
-              margin: "0 auto 16px",
+              border: '4px solid #e5e7eb',
+              borderTop: '4px solid #2563eb',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite',
+              margin: '0 auto 16px',
             }}
-          ></div>
-          <p style={{ color: "#6b7280" }}>Loading checkout...</p>
+          />
+          <p style={{ color: '#6b7280' }}>Loading checkout...</p>
         </div>
 
         <style>{`
@@ -88,56 +100,67 @@ export default function CheckoutPage() {
 
   if (!plan) return null;
 
-  const billingCycleLabel = plan.billingCycle === "yearly" ? "year" : "month";
-
-  /* ---------------- PAGE ---------------- */
+  const cycleLabel = plan.cycleType === 'custom'
+    ? `${plan.customDays || 0} days`
+    : plan.cycleType === 'yearly'
+      ? 'year'
+      : 'month';
+  const priceLabel = plan.price === 0
+    ? 'Free'
+    : plan.paymentType === 'subscription'
+      ? `$${plan.price}/${cycleLabel}`
+      : `$${plan.price} one-time`;
+  const checkoutButtonLabel = processing
+    ? 'Redirecting...'
+    : hasActivePaidSubscription
+      ? 'Cancel Current Plan First'
+      : plan.paymentType === 'subscription'
+        ? `Subscribe - $${plan.price}/${cycleLabel}`
+        : `Pay Once - $${plan.price}`;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f9fafb", padding: "40px 16px" }}>
-      <div style={{ maxWidth: 720, margin: "0 auto" }}>
+    <div style={{ minHeight: '100vh', background: '#f9fafb', padding: '40px 16px' }}>
+      <div style={{ maxWidth: 720, margin: '0 auto' }}>
         <TenantCommonHeader title="Checkout" subtitle="Review your plan and proceed to payment" />
 
-        {/* ACTIVE SUBSCRIPTION WARNING */}
-        {hasActiveSubscription && (
+        {hasActivePaidSubscription && (
           <div
             style={{
-              background: "#fef3c7",
-              border: "1px solid #f59e0b",
+              background: '#fef3c7',
+              border: '1px solid #f59e0b',
               borderRadius: 8,
               padding: 16,
               marginBottom: 24,
-              display: "flex",
+              display: 'flex',
               gap: 12,
             }}
           >
-            <span style={{ fontSize: 20 }}>⚠</span>
+            <span style={{ fontSize: 20 }}>&#9888;</span>
             <div>
               <p style={{ fontWeight: 600, margin: 0 }}>Active Subscription Detected</p>
-              <p style={{ margin: "4px 0", fontSize: 14 }}>
-                You currently have an active <strong>{subscription?.plan}</strong> plan.
+              <p style={{ margin: '4px 0', fontSize: 14 }}>
+                You currently have an active paid <strong>{getPlanDisplayName(subscription?.plan)}</strong> plan.
               </p>
 
               {subscription?.subscription?.currentPeriodEnd && (
                 <p style={{ fontSize: 13 }}>
-                  Active until{" "}
+                  Active until{' '}
                   <strong>
-                    {new Date(
-                      subscription.subscription.currentPeriodEnd
-                    ).toLocaleDateString()}
+                    {new Date(subscription.subscription.currentPeriodEnd).toLocaleDateString()}
                   </strong>
                 </p>
               )}
 
               <button
-                onClick={() => navigate("/dashboard")}
+                onClick={() => navigate('/dashboard')}
                 style={{
                   marginTop: 8,
-                  background: "#f59e0b",
-                  color: "#fff",
-                  border: "none",
-                  padding: "8px 16px",
+                  background: '#f59e0b',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '8px 16px',
                   borderRadius: 6,
-                  cursor: "pointer",
+                  cursor: 'pointer',
                   fontWeight: 600,
                 }}
               >
@@ -147,15 +170,12 @@ export default function CheckoutPage() {
           </div>
         )}
 
-        {/* MAIN GRID */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-          
-          {/* PLAN DETAILS */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
           <div
             style={{
-              background: "#fff",
+              background: '#fff',
               borderRadius: 12,
-              border: "1px solid #e5e7eb",
+              border: '1px solid #e5e7eb',
               padding: 24,
             }}
           >
@@ -163,17 +183,21 @@ export default function CheckoutPage() {
 
             <div
               style={{
-                background: "#eff6ff",
+                background: '#eff6ff',
                 borderRadius: 8,
                 padding: 16,
                 marginTop: 12,
               }}
             >
-              <div style={{ fontSize: 20, fontWeight: 700 }}>{plan.name} Plan</div>
+              <div style={{ fontSize: 20, fontWeight: 700 }}>{getPlanDisplayName(plan)} Plan</div>
 
               <div style={{ marginTop: 8 }}>
                 <span style={{ fontSize: 32, fontWeight: 800 }}>${plan.price}</span>
-                <span style={{ color: "#6b7280" }}>/{billingCycleLabel}</span>
+                {plan.price > 0 && (
+                  <span style={{ color: '#6b7280' }}>
+                    {plan.paymentType === 'subscription' ? `/ ${cycleLabel}` : ' one-time'}
+                  </span>
+                )}
               </div>
 
               {plan.description && (
@@ -181,58 +205,49 @@ export default function CheckoutPage() {
               )}
             </div>
 
-            <ul style={{ listStyle: "none", padding: 0, marginTop: 16 }}>
+            <ul style={{ listStyle: 'none', padding: 0, marginTop: 16 }}>
               {[
-                { label: "Users", value: plan.features?.maxUsers },
-                { label: "Branches", value: plan.features?.maxBranches },
-                {
-                  label: "Products",
-                  value: plan.features?.maxProducts?.toLocaleString(),
-                },
-                {
-                  label: "Invoices/month",
-                  value: plan.features?.maxInvoicesPerMonth?.toLocaleString(),
-                },
-              ].map((f) => (
-                <li key={f.label} style={{ padding: "8px 0", fontSize: 14 }}>
-                  ✔ {f.label}: <strong>{f.value}</strong>
+                { label: 'Users', value: plan.features?.maxUsers },
+                { label: 'Branches', value: plan.features?.maxBranches },
+                { label: 'Products', value: plan.features?.maxProducts?.toLocaleString() },
+                { label: 'Invoices/month', value: plan.features?.maxInvoicesPerMonth?.toLocaleString() },
+              ].map((feature) => (
+                <li key={feature.label} style={{ padding: '8px 0', fontSize: 14 }}>
+                  &#10003; {feature.label}: <strong>{feature.value}</strong>
                 </li>
               ))}
             </ul>
           </div>
 
-          {/* BILLING SUMMARY */}
           <div
             style={{
-              background: "#fff",
+              background: '#fff',
               borderRadius: 12,
-              border: "1px solid #e5e7eb",
+              border: '1px solid #e5e7eb',
               padding: 24,
             }}
           >
             <h2 style={{ fontSize: 18, fontWeight: 700 }}>Billing Summary</h2>
 
             <div style={{ marginTop: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>{plan.name}</span>
-                <span>
-                  ${plan.price}/{billingCycleLabel}
-                </span>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>{getPlanDisplayName(plan)}</span>
+                <span>{priceLabel}</span>
               </div>
 
               <div
                 style={{
-                  borderTop: "1px solid #e5e7eb",
+                  borderTop: '1px solid #e5e7eb',
                   marginTop: 12,
                   paddingTop: 12,
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Subtotal</span>
                   <span>${plan.price}</span>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Tax</span>
                   <span>Calculated at checkout</span>
                 </div>
@@ -240,76 +255,72 @@ export default function CheckoutPage() {
 
               <div
                 style={{
-                  borderTop: "1px solid #e5e7eb",
+                  borderTop: '1px solid #e5e7eb',
                   marginTop: 12,
                   paddingTop: 12,
                   fontWeight: 700,
                   fontSize: 18,
-                  display: "flex",
-                  justifyContent: "space-between",
+                  display: 'flex',
+                  justifyContent: 'space-between',
                 }}
               >
                 <span>Total</span>
                 <span>
-                  ${plan.price}/{billingCycleLabel}
+                  {priceLabel}
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* ACTION BUTTONS */}
         <div
           style={{
-            display: "flex",
-            justifyContent: "space-between",
+            display: 'flex',
+            justifyContent: 'space-between',
             marginTop: 32,
           }}
         >
           <button
-            onClick={() => navigate("/dashboard")}
+            onClick={() => navigate('/dashboard')}
             style={{
-              border: "1px solid #d1d5db",
-              background: "#fff",
-              padding: "12px 24px",
+              border: '1px solid #d1d5db',
+              background: '#fff',
+              padding: '12px 24px',
               borderRadius: 8,
-              cursor: "pointer",
+              cursor: 'pointer',
             }}
           >
-            ← Back
+            &#8592; Back
           </button>
 
           <button
             onClick={handleCheckout}
-            disabled={processing || hasActiveSubscription}
+            disabled={processing || hasActivePaidSubscription}
             style={{
-              background: hasActiveSubscription ? "#9ca3af" : "#2563eb",
-              color: "#fff",
-              border: "none",
-              padding: "12px 32px",
+              background: hasActivePaidSubscription ? '#9ca3af' : '#2563eb',
+              color: '#fff',
+              border: 'none',
+              padding: '12px 32px',
               borderRadius: 8,
-              cursor: hasActiveSubscription ? "not-allowed" : "pointer",
+              cursor: hasActivePaidSubscription ? 'not-allowed' : 'pointer',
               fontWeight: 700,
             }}
           >
             {processing
-              ? "Redirecting..."
-              : hasActiveSubscription
-              ? "Cancel Current Plan First"
-              : `Subscribe - $${plan.price}/${billingCycleLabel}`}
+              ? 'Redirecting...'
+              : checkoutButtonLabel}
           </button>
         </div>
 
-        {/* FOOTER */}
-        <div style={{ textAlign: "center", marginTop: 24, fontSize: 12 }}>
-          <p>You can cancel anytime from your dashboard.</p>
+        <div style={{ textAlign: 'center', marginTop: 24, fontSize: 12 }}>
+          <p>{plan.paymentType === 'subscription' ? 'You can cancel anytime from your dashboard.' : 'This plan will be charged once and activated for its configured duration.'}</p>
         </div>
       </div>
 
       <style>{`
-        @media (max-width:768px){
-          div[style*="gridTemplateColumns"]{
-            grid-template-columns:1fr !important;
+        @media (max-width: 768px) {
+          div[style*="gridTemplateColumns"] {
+            grid-template-columns: 1fr !important;
           }
         }
       `}</style>

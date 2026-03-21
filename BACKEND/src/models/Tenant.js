@@ -41,18 +41,6 @@ const tenantSchema = new mongoose.Schema(
       enum: ['active', 'suspended', 'inactive'],
       default: 'active',
     },
-    plan: {
-      type: String,
-      default: 'trial',
-    },
-    trialStartAt: {
-      type: Date,
-      default: () => new Date(),
-    },
-    trialEndAt: {
-      type: Date,
-      default: () => new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days
-    },
     primaryAdminId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -102,22 +90,6 @@ const tenantSchema = new mongoose.Schema(
     },
     stripeCustomerId: String,
     stripePlanId: String,
-    subscription: {
-      id: String,
-      status: { type: String, enum: [null, 'active', 'past_due', 'canceled', 'canceling', 'unpaid', 'incomplete', 'trialing'], default: null },
-      gateway: { type: String, enum: [null, 'stripe', 'razorpay'], default: null },
-      planSlug: String,
-      currentPeriodStart: Date,
-      currentPeriodEnd: Date,
-      cancelAtPeriodEnd: { type: Boolean, default: false },
-      canceledAt: Date,
-    },
-    usage: {
-      invoiceCount: { type: Number, default: 0 },
-      apiCallsThisMonth: { type: Number, default: 0 },
-      activeUsers: { type: Number, default: 1 },
-      storageMB: { type: Number, default: 0 },
-    },
     createdAt: {
       type: Date,
       default: () => new Date(),
@@ -133,8 +105,6 @@ const tenantSchema = new mongoose.Schema(
 // Indexes for common queries
 tenantSchema.index({ email: 1 });
 tenantSchema.index({ status: 1 });
-tenantSchema.index({ plan: 1 });
 tenantSchema.index({ createdAt: -1 });
-tenantSchema.index({ 'subscription.status': 1 });
 
 module.exports = mongoose.model('Tenant', tenantSchema);

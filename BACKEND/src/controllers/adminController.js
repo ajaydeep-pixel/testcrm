@@ -10,7 +10,74 @@ const AuditLog = require('../models/AuditLog');
 const AuthService = require('../services/AuthService');
 const PlatformSettings = require('../models/PlatformSettings');
 const Plan = require('../models/Plan');
+const TenantPlan = require('../models/TenantPlan');
 const bcrypt = require('bcryptjs');
+
+const ACTIVE_TENANT_PLAN_STATUSES = ['trialing', 'active', 'canceling', 'past_due', 'incomplete'];
+
+const getCurrentTenantPlansMap = async (tenantIds) => {
+  if (!tenantIds.length) return new Map();
+
+  const tenantPlans = await TenantPlan.find({
+    tenantId: { $in: tenantIds },
+    status: { $in: ACTIVE_TENANT_PLAN_STATUSES },
+  })
+    .sort({ tenantId: 1, createdAt: -1 })
+    .lean();
+
+  const map = new Map();
+  tenantPlans.forEach((tenantPlan) => {
+    const key = tenantPlan.tenantId.toString();
+    if (!map.has(key)) {
+      map.set(key, tenantPlan);
+    }
+  });
+
+  return map;
+};
+
+const getPlansMap = async (tenantPlans) => {
+  const planIds = [...new Set(tenantPlans.map((tenantPlan) => tenantPlan?.planId?.toString()).filter(Boolean))];
+  if (!planIds.length) return new Map();
+
+  const plans = await Plan.find({ _id: { $in: planIds } }).lean();
+  return new Map(plans.map((plan) => [plan._id.toString(), plan]));
+};
+
+const decorateTenant = (tenantDoc, tenantPlan, planDoc) => {
+  const tenant = typeof tenantDoc.toObject === 'function' ? tenantDoc.toObject() : { ...tenantDoc };
+  const currentPeriodEnd = tenantPlan?.currentPeriodEnd || tenantPlan?.endDate || null;
+  const trialDaysRemaining = tenantPlan?.status === 'trialing' && currentPeriodEnd
+    ? Math.max(0, Math.ceil((new Date(currentPeriodEnd).getTime() - Date.now()) / (24 * 60 * 60 * 1000)))
+    : null;
+  const usage = tenantPlan?.usage || tenant.usage || {
+    invoiceCount: 0,
+    apiCallsThisMonth: 0,
+    activeUsers: 0,
+    storageMB: 0,
+  };
+
+  return {
+    ...tenant,
+    plan: planDoc?.slug || tenantPlan?.metadata?.planSlug || 'trial',
+    planName: planDoc?.name || planDoc?.slug || tenantPlan?.metadata?.planSlug || 'Trial',
+    planDetails: planDoc || null,
+    trialEndAt: currentPeriodEnd,
+    trialDaysRemaining,
+    usage,
+    subscription: tenantPlan
+      ? {
+          id: tenantPlan.gatewaySubscriptionId || null,
+          status: tenantPlan.status,
+          gateway: tenantPlan.gateway,
+          currentPeriodStart: tenantPlan.currentPeriodStart || tenantPlan.startDate || null,
+          currentPeriodEnd,
+          cancelAtPeriodEnd: !!tenantPlan.cancelAtPeriodEnd,
+          canceledAt: tenantPlan.canceledAt || null,
+        }
+      : null,
+  };
+};
 
 /**
  * GET /api/admin/dashboard
@@ -29,14 +96,41 @@ exports.getDashboardMetrics = async (req, res) => {
 
     const totalRevenue = paidInvoices[0]?.totalAmount || 0;
 
-    const tenantsByPlan = await Tenant.aggregate([
-      { $group: { _id: '$plan', count: { $sum: 1 } } },
-    ]);
-
-    const recentTenants = await Tenant.find()
+    const recentTenantsRaw = await Tenant.find()
       .sort({ createdAt: -1 })
       .limit(5)
-      .select('name email plan status createdAt');
+      .select('name email status createdAt');
+
+    const recentTenantIds = recentTenantsRaw.map((tenant) => tenant._id);
+    const recentTenantPlansMap = await getCurrentTenantPlansMap(recentTenantIds);
+    const recentPlansMap = await getPlansMap([...recentTenantPlansMap.values()]);
+    const recentTenants = recentTenantsRaw.map((tenant) =>
+      decorateTenant(
+        tenant,
+        recentTenantPlansMap.get(tenant._id.toString()),
+        recentPlansMap.get(recentTenantPlansMap.get(tenant._id.toString())?.planId?.toString())
+      )
+    );
+
+    const currentTenantPlans = await TenantPlan.find({
+      status: { $in: ACTIVE_TENANT_PLAN_STATUSES },
+    }).sort({ tenantId: 1, createdAt: -1 }).lean();
+
+    const currentByTenant = new Map();
+    currentTenantPlans.forEach((tenantPlan) => {
+      const key = tenantPlan.tenantId.toString();
+      if (!currentByTenant.has(key)) {
+        currentByTenant.set(key, tenantPlan);
+      }
+    });
+
+    const plansMap = await getPlansMap([...currentByTenant.values()]);
+    const tenantsByPlanCounts = new Map();
+    [...currentByTenant.values()].forEach((tenantPlan) => {
+      const slug = plansMap.get(tenantPlan.planId?.toString())?.slug || tenantPlan.metadata?.planSlug || 'trial';
+      tenantsByPlanCounts.set(slug, (tenantsByPlanCounts.get(slug) || 0) + 1);
+    });
+    const tenantsByPlan = [...tenantsByPlanCounts.entries()].map(([slug, count]) => ({ _id: slug, count }));
 
     res.json({
       metrics: {
@@ -65,16 +159,30 @@ exports.listTenants = async (req, res) => {
 
     const filter = {};
     if (status) filter.status = status;
-    if (plan) filter.plan = plan;
 
-    const [tenants, total] = await Promise.all([
+    const [tenantDocs, total] = await Promise.all([
       Tenant.find(filter)
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
-        .select('name email plan status trialEndAt createdAt'),
+        .select('name email status createdAt'),
       Tenant.countDocuments(filter),
     ]);
+
+    const tenantPlansMap = await getCurrentTenantPlansMap(tenantDocs.map((tenant) => tenant._id));
+    const plansMap = await getPlansMap([...tenantPlansMap.values()]);
+
+    let tenants = tenantDocs.map((tenant) =>
+      decorateTenant(
+        tenant,
+        tenantPlansMap.get(tenant._id.toString()),
+        plansMap.get(tenantPlansMap.get(tenant._id.toString())?.planId?.toString())
+      )
+    );
+
+    if (plan) {
+      tenants = tenants.filter((tenant) => tenant.plan === plan);
+    }
 
     res.json({
       tenants,
@@ -99,6 +207,15 @@ exports.getTenantDetails = async (req, res) => {
     const tenant = await Tenant.findById(req.params.tenantId);
     if (!tenant) return res.status(404).json({ message: 'Tenant not found' });
 
+    const tenantPlansMap = await getCurrentTenantPlansMap([tenant._id]);
+    const tenantPlan = tenantPlansMap.get(tenant._id.toString()) || null;
+    const plansMap = await getPlansMap(tenantPlan ? [tenantPlan] : []);
+    const decoratedTenant = decorateTenant(
+      tenant,
+      tenantPlan,
+      plansMap.get(tenantPlan?.planId?.toString())
+    );
+
     const users = await User.find({ tenantId: tenant._id })
       .select('name email role status lastLoginAt createdAt');
 
@@ -106,7 +223,7 @@ exports.getTenantDetails = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(20);
 
-    res.json({ tenant, users, invoices });
+    res.json({ tenant: decoratedTenant, users, invoices });
   } catch (err) {
     console.error('Error getting tenant details:', err);
     res.status(500).json({ message: 'Failed to get tenant details', error: err.message });
@@ -153,7 +270,6 @@ exports.updateTenant = async (req, res) => {
     if (state !== undefined) updateFields.state = state;
     if (city !== undefined) updateFields.city = city;
     if (zip !== undefined) updateFields.zip = zip;
-    if (plan && ['trial', 'basic', 'pro', 'enterprise'].includes(plan)) updateFields.plan = plan;
     if (status && ['active', 'suspended', 'inactive'].includes(status)) updateFields.status = status;
     if (settings) {
       if (settings.timezone) updateFields['settings.timezone'] = settings.timezone;
@@ -169,7 +285,67 @@ exports.updateTenant = async (req, res) => {
     );
     if (!tenant) return res.status(404).json({ message: 'Tenant not found' });
 
-    res.json({ message: 'Tenant updated', tenant });
+    if (plan) {
+      const planDoc = await Plan.findOne({ slug: plan, isActive: true });
+      if (!planDoc) {
+        return res.status(400).json({ message: 'Invalid plan' });
+      }
+
+      const existingCurrentPlan = await TenantPlan.findOne({
+        tenantId: tenant._id,
+        status: { $in: ACTIVE_TENANT_PLAN_STATUSES },
+      }).sort({ createdAt: -1 });
+
+      const selectedPlanId = planDoc._id.toString();
+      const currentPlanId = existingCurrentPlan?.planId?.toString();
+
+      if (currentPlanId !== selectedPlanId) {
+        const now = new Date();
+        if (existingCurrentPlan) {
+          existingCurrentPlan.status = existingCurrentPlan.status === 'trialing' ? 'expired' : 'canceled';
+          existingCurrentPlan.endedAt = now;
+          existingCurrentPlan.cancelAtPeriodEnd = false;
+          await existingCurrentPlan.save();
+        }
+
+        const durationDays = planDoc.cycleType === 'custom'
+          ? Number(planDoc.customDays || 0)
+          : planDoc.cycleType === 'yearly'
+            ? 365
+            : 30;
+        const currentPeriodEnd = durationDays ? new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000) : null;
+
+        await TenantPlan.create({
+          tenantId: tenant._id,
+          planId: planDoc._id,
+          status: planDoc.price === 0 ? 'active' : 'incomplete',
+          gateway: null,
+          startDate: now,
+          currentPeriodStart: now,
+          currentPeriodEnd,
+          nextBillingDate: planDoc.paymentType === 'subscription' ? currentPeriodEnd : null,
+          renewalInterval: planDoc.cycleType === 'custom'
+            ? 'custom'
+            : planDoc.paymentType === 'subscription'
+              ? planDoc.cycleType
+              : 'one-time',
+          previousTenantPlanId: existingCurrentPlan?._id || null,
+          usage: existingCurrentPlan?.usage || undefined,
+          metadata: {
+            planSlug: planDoc.slug,
+            source: 'admin_update_tenant',
+          },
+        });
+      }
+    }
+
+    const tenantPlansMap = await getCurrentTenantPlansMap([tenant._id]);
+    const tenantPlan = tenantPlansMap.get(tenant._id.toString()) || null;
+    const plansMap = await getPlansMap(tenantPlan ? [tenantPlan] : []);
+    res.json({
+      message: 'Tenant updated',
+      tenant: decorateTenant(tenant, tenantPlan, plansMap.get(tenantPlan?.planId?.toString())),
+    });
   } catch (err) {
     console.error('Error updating tenant:', err);
     res.status(500).json({ message: 'Failed to update tenant', error: err.message });
@@ -462,7 +638,7 @@ exports.listPlans = async (req, res) => {
  */
 exports.createPlan = async (req, res) => {
   try {
-    const { name, slug, price, billingCycle, features, description, isActive, sortOrder } = req.body;
+    const { name, slug, price, paymentType, cycleType, customDays, features, rateLimit, description, isActive, sortOrder } = req.body;
     if (!name || !slug) return res.status(400).json({ message: 'Name and slug are required' });
 
     const existing = await Plan.findOne({ $or: [{ name }, { slug: slug.toLowerCase() }] });
@@ -470,8 +646,14 @@ exports.createPlan = async (req, res) => {
 
     const plan = await Plan.create({
       name, slug: slug.toLowerCase(), price: price || 0,
-      billingCycle: billingCycle || 'monthly',
+      paymentType: paymentType || 'subscription',
+      cycleType: cycleType || 'monthly',
+      customDays: cycleType === 'custom' ? Number(customDays) : null,
       features: features || {},
+      rateLimit: {
+        requests: rateLimit?.requests || 100,
+        window: rateLimit?.window || 3600,
+      },
       description: description || '',
       isActive: isActive !== false,
       sortOrder: sortOrder || 0,
@@ -488,15 +670,24 @@ exports.createPlan = async (req, res) => {
 exports.updatePlan = async (req, res) => {
   try {
     const { planId } = req.params;
-    const { name, price, billingCycle, features, description, isActive, sortOrder } = req.body;
+    const { name, price, paymentType, cycleType, customDays, features, rateLimit, description, isActive, sortOrder } = req.body;
 
     const plan = await Plan.findById(planId);
     if (!plan) return res.status(404).json({ message: 'Plan not found' });
 
     if (name) plan.name = name;
     if (price !== undefined) plan.price = price;
-    if (billingCycle) plan.billingCycle = billingCycle;
+    if (paymentType) plan.paymentType = paymentType;
+    if (cycleType) plan.cycleType = cycleType;
+    if (customDays !== undefined) plan.customDays = cycleType === 'custom' || plan.cycleType === 'custom' ? Number(customDays) : null;
     if (features) plan.features = { ...plan.features, ...features };
+    if (rateLimit) {
+      plan.rateLimit = {
+        ...plan.rateLimit?.toObject?.(),
+        ...plan.rateLimit,
+        ...rateLimit,
+      };
+    }
     if (description !== undefined) plan.description = description;
     if (isActive !== undefined) plan.isActive = isActive;
     if (sortOrder !== undefined) plan.sortOrder = sortOrder;

@@ -7,6 +7,10 @@
 const Stripe = require('stripe');
 const Tenant = require('../models/Tenant');
 const Plan = require('../models/Plan');
+const Invoice = require('../models/Invoice');
+const TenantPlan = require('../models/TenantPlan');
+const TenantInvoice = require('../models/TenantInvoice');
+const TenantTransaction = require('../models/TenantTransaction');
 
 class BillingService {
   constructor() {
@@ -26,6 +30,405 @@ class BillingService {
 
   get isStripeConfigured() {
     return !!this.stripe;
+  }
+
+  _generateInvoiceNumber(prefix = 'SUB') {
+    return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  }
+
+  _resolveRenewalInterval(plan) {
+    if (!plan) return 'custom';
+    if (plan.paymentType === 'subscription') {
+      return plan.cycleType === 'yearly' ? 'yearly' : 'monthly';
+    }
+    return plan.cycleType === 'custom' ? 'custom' : plan.cycleType;
+  }
+
+  _getPlanDurationDays(plan) {
+    if (!plan) return 0;
+    if (plan.cycleType === 'custom') return Number(plan.customDays || 0);
+    if (plan.cycleType === 'yearly') return 365;
+    return 30;
+  }
+
+  _mapSubscriptionStatus(status, cancelAtPeriodEnd = false) {
+    if (cancelAtPeriodEnd && ['active', 'trialing', 'past_due'].includes(status)) {
+      return 'canceling';
+    }
+
+    switch (status) {
+      case 'trialing':
+      case 'active':
+      case 'past_due':
+      case 'canceling':
+      case 'canceled':
+      case 'incomplete':
+      case 'suspended':
+        return status;
+      case 'unpaid':
+        return 'past_due';
+      case 'incomplete_expired':
+        return 'canceled';
+      default:
+        return cancelAtPeriodEnd ? 'canceling' : 'active';
+    }
+  }
+
+  async _getFreeFallbackPlan() {
+    return Plan.findOne({ price: 0, isActive: true }).sort({ sortOrder: 1 });
+  }
+
+  async _getTenantPlanContext({ tenantId = null, gatewaySubscriptionId = '', stripeCustomerId = '', planSlug = '' } = {}) {
+    let tenant = tenantId ? await Tenant.findById(tenantId) : null;
+    let tenantPlan = null;
+
+    if (tenant?._id && gatewaySubscriptionId) {
+      tenantPlan = await TenantPlan.findOne({
+        tenantId: tenant._id,
+        gatewaySubscriptionId,
+      }).sort({ createdAt: -1 });
+    }
+
+    if (!tenantPlan && gatewaySubscriptionId) {
+      tenantPlan = await TenantPlan.findOne({ gatewaySubscriptionId }).sort({ createdAt: -1 });
+    }
+
+    if (!tenant && tenantPlan) {
+      tenant = await Tenant.findById(tenantPlan.tenantId);
+    }
+
+    if (!tenant && stripeCustomerId) {
+      tenant = await Tenant.findOne({ stripeCustomerId });
+    }
+
+    if (!tenant) {
+      return { tenant: null, tenantPlan: null, plan: null, planSlug: planSlug || 'trial' };
+    }
+
+    if (!tenantPlan) {
+      tenantPlan = await this._getCurrentTenantPlan(tenant._id);
+    }
+
+    let plan = null;
+    if (tenantPlan?.planId) {
+      plan = await Plan.findById(tenantPlan.planId);
+    }
+    if (!plan && planSlug) {
+      plan = await Plan.findOne({ slug: planSlug, isActive: true });
+    }
+
+    return {
+      tenant,
+      tenantPlan,
+      plan,
+      planSlug: plan?.slug || tenantPlan?.metadata?.planSlug || planSlug || 'trial',
+    };
+  }
+
+  async _ensureTenantPlanRecord(tenant, plan, subscription, overrides = {}) {
+    if (!tenant || !plan) return null;
+
+    let tenantPlan = null;
+    const gatewaySubscriptionId = subscription?.id || '';
+
+    if (!tenantPlan && gatewaySubscriptionId) {
+      tenantPlan = await TenantPlan.findOne({
+        tenantId: tenant._id,
+        gatewaySubscriptionId,
+      }).sort({ createdAt: -1 });
+    }
+
+    if (!tenantPlan) {
+      tenantPlan = await TenantPlan.findOne({
+        tenantId: tenant._id,
+        status: { $in: ['trialing', 'active', 'canceling', 'past_due', 'incomplete'] },
+      }).sort({ createdAt: -1 });
+    }
+
+    if (!tenantPlan) {
+      tenantPlan = new TenantPlan({
+        tenantId: tenant._id,
+        planId: plan._id,
+        gateway: subscription?.gateway || overrides.gateway || null,
+        gatewaySubscriptionId,
+        gatewayCustomerId: tenant.stripeCustomerId || '',
+        renewalInterval: this._resolveRenewalInterval(plan),
+        usage: {
+          invoiceCount: tenant.usage?.invoiceCount || 0,
+          apiCallsThisMonth: tenant.usage?.apiCallsThisMonth || 0,
+          activeUsers: tenant.usage?.activeUsers || 1,
+          storageMB: tenant.usage?.storageMB || 0,
+        },
+      });
+    }
+
+    tenantPlan.planId = plan._id;
+    tenantPlan.gateway = subscription?.gateway || overrides.gateway || tenantPlan.gateway || null;
+    tenantPlan.gatewaySubscriptionId = gatewaySubscriptionId || tenantPlan.gatewaySubscriptionId;
+    tenantPlan.gatewayCustomerId = tenant.stripeCustomerId || tenantPlan.gatewayCustomerId;
+    tenantPlan.status = overrides.status || subscription?.status || tenantPlan.status;
+    tenantPlan.startDate = overrides.startDate || tenantPlan.startDate || subscription?.currentPeriodStart || new Date();
+    tenantPlan.endDate = overrides.endDate || tenantPlan.endDate;
+    tenantPlan.currentPeriodStart = overrides.currentPeriodStart || subscription?.currentPeriodStart || tenantPlan.currentPeriodStart;
+    tenantPlan.currentPeriodEnd = overrides.currentPeriodEnd || subscription?.currentPeriodEnd || tenantPlan.currentPeriodEnd;
+    tenantPlan.nextBillingDate = overrides.nextBillingDate || subscription?.currentPeriodEnd || tenantPlan.nextBillingDate;
+    tenantPlan.cancelAtPeriodEnd = overrides.cancelAtPeriodEnd ?? subscription?.cancelAtPeriodEnd ?? tenantPlan.cancelAtPeriodEnd;
+    tenantPlan.canceledAt = overrides.canceledAt ?? subscription?.canceledAt ?? tenantPlan.canceledAt;
+    tenantPlan.endedAt = overrides.endedAt ?? tenantPlan.endedAt;
+    tenantPlan.previousTenantPlanId = overrides.previousTenantPlanId ?? tenantPlan.previousTenantPlanId;
+    tenantPlan.nextPlannedPlanId = overrides.nextPlannedPlanId ?? tenantPlan.nextPlannedPlanId;
+    tenantPlan.renewalInterval = this._resolveRenewalInterval(plan) || tenantPlan.renewalInterval;
+    tenantPlan.metadata = {
+      ...(tenantPlan.metadata || {}),
+      planSlug: plan.slug,
+      tenantPlanSource: 'billing-service-phase1',
+      ...(overrides.metadata || {}),
+    };
+
+    await tenantPlan.save();
+
+    return tenantPlan;
+  }
+
+  async _transitionTenantPlanForCheckout(tenant, plan, subscriptionState, overrides = {}) {
+    if (!tenant || !plan) return null;
+
+    const gatewaySubscriptionId = subscriptionState?.id || '';
+    if (gatewaySubscriptionId) {
+      const existingByGateway = await TenantPlan.findOne({
+        tenantId: tenant._id,
+        gatewaySubscriptionId,
+      }).sort({ createdAt: -1 });
+
+      if (existingByGateway) {
+        return this._ensureTenantPlanRecord(tenant, plan, subscriptionState, overrides);
+      }
+    }
+
+    const currentTenantPlan = await this._getCurrentTenantPlan(tenant._id);
+    if (
+      currentTenantPlan &&
+      (
+        currentTenantPlan.planId?.toString() !== plan._id.toString() ||
+        currentTenantPlan.status === 'trialing' ||
+        currentTenantPlan.gatewaySubscriptionId !== gatewaySubscriptionId
+      )
+    ) {
+      currentTenantPlan.status = currentTenantPlan.status === 'trialing' ? 'expired' : 'canceled';
+      currentTenantPlan.cancelAtPeriodEnd = false;
+      currentTenantPlan.endedAt = overrides.startDate || subscriptionState?.currentPeriodStart || new Date();
+      await currentTenantPlan.save();
+    }
+
+    const tenantPlan = new TenantPlan({
+      tenantId: tenant._id,
+      planId: plan._id,
+      gateway: subscriptionState?.gateway || overrides.gateway || null,
+      gatewaySubscriptionId,
+      gatewayCustomerId: tenant.stripeCustomerId || '',
+      status: overrides.status || subscriptionState?.status || 'active',
+      startDate: overrides.startDate || subscriptionState?.currentPeriodStart || new Date(),
+      endDate: overrides.endDate || null,
+      currentPeriodStart: overrides.currentPeriodStart || subscriptionState?.currentPeriodStart || null,
+      currentPeriodEnd: overrides.currentPeriodEnd || subscriptionState?.currentPeriodEnd || null,
+      nextBillingDate: overrides.nextBillingDate ?? subscriptionState?.currentPeriodEnd ?? null,
+      cancelAtPeriodEnd: overrides.cancelAtPeriodEnd ?? subscriptionState?.cancelAtPeriodEnd ?? false,
+      canceledAt: overrides.canceledAt ?? subscriptionState?.canceledAt ?? null,
+      endedAt: overrides.endedAt ?? null,
+      renewalInterval: this._resolveRenewalInterval(plan),
+      previousTenantPlanId: currentTenantPlan?._id || null,
+      usage: {
+        invoiceCount: tenant.usage?.invoiceCount || 0,
+        apiCallsThisMonth: tenant.usage?.apiCallsThisMonth || 0,
+        activeUsers: tenant.usage?.activeUsers || 1,
+        storageMB: tenant.usage?.storageMB || 0,
+      },
+      metadata: {
+        planSlug: plan.slug,
+        tenantPlanSource: 'billing-service-checkout-transition',
+        ...(overrides.metadata || {}),
+      },
+    });
+
+    await tenantPlan.save();
+    return tenantPlan;
+  }
+
+  async _getCurrentTenantPlan(tenantId) {
+    return TenantPlan.findOne({
+      tenantId,
+      status: { $in: ['trialing', 'active', 'canceling', 'past_due', 'incomplete'] },
+    }).sort({ createdAt: -1 });
+  }
+
+  async _getCurrentTenantPlanAndPlan(tenantId) {
+    const tenantPlan = await this._getCurrentTenantPlan(tenantId);
+    if (!tenantPlan) {
+      return { tenantPlan: null, plan: null, planSlug: 'trial' };
+    }
+
+    const plan = await Plan.findById(tenantPlan.planId);
+    return {
+      tenantPlan,
+      plan,
+      planSlug: plan?.slug || tenantPlan.metadata?.planSlug || 'trial',
+    };
+  }
+
+  async _ensureInvoiceMirrors({
+    tenant,
+    tenantPlan,
+    plan,
+    gatewayInvoiceId = '',
+    paymentId = '',
+    amount = 0,
+    currency = 'usd',
+    status = 'paid',
+    paidAt = null,
+    dueAt = null,
+    periodStart = null,
+    periodEnd = null,
+    pdfUrl = '',
+    metadata = {},
+  }) {
+    if (!tenant || !tenantPlan || !plan) return { legacyInvoice: null, tenantInvoice: null };
+
+    let legacyInvoice = null;
+    if (gatewayInvoiceId) {
+      legacyInvoice = await Invoice.findOne({ stripeInvoiceId: gatewayInvoiceId });
+    }
+    if (!legacyInvoice && paymentId) {
+      legacyInvoice = await Invoice.findOne({ razorpayPaymentId: paymentId });
+    }
+    if (!legacyInvoice) {
+      legacyInvoice = new Invoice({
+        tenantId: tenant._id,
+        invoiceNumber: this._generateInvoiceNumber('INV'),
+      });
+    }
+
+    legacyInvoice.status = status === 'failed' ? 'overdue' : status === 'canceled' ? 'canceled' : 'paid';
+    legacyInvoice.type = 'subscription';
+    legacyInvoice.plan = plan.slug;
+    legacyInvoice.amount = amount;
+    legacyInvoice.currency = currency;
+    legacyInvoice.period = { start: periodStart, end: periodEnd };
+    legacyInvoice.items = [
+      {
+        description: `${plan.name} subscription`,
+        quantity: 1,
+        unitPrice: amount,
+        total: amount,
+      },
+    ];
+    legacyInvoice.stripeInvoiceId = gatewayInvoiceId || legacyInvoice.stripeInvoiceId;
+    legacyInvoice.razorpayPaymentId = paymentId || legacyInvoice.razorpayPaymentId;
+    legacyInvoice.paidAt = paidAt || legacyInvoice.paidAt;
+    legacyInvoice.dueAt = dueAt || legacyInvoice.dueAt;
+    legacyInvoice.pdfUrl = pdfUrl || legacyInvoice.pdfUrl;
+    legacyInvoice.notes = metadata?.note || legacyInvoice.notes;
+    await legacyInvoice.save();
+
+    let tenantInvoice = null;
+    if (gatewayInvoiceId) {
+      tenantInvoice = await TenantInvoice.findOne({ gatewayInvoiceId });
+    }
+    if (!tenantInvoice) {
+      tenantInvoice = new TenantInvoice({
+        tenantId: tenant._id,
+        tenantPlanId: tenantPlan._id,
+        invoiceNumber: legacyInvoice.invoiceNumber,
+      });
+    }
+
+    tenantInvoice.type = 'subscription';
+    tenantInvoice.status = status;
+    tenantInvoice.currency = currency || 'usd';
+    tenantInvoice.amount = amount || 0;
+    tenantInvoice.subtotal = amount || 0;
+    tenantInvoice.taxAmount = 0;
+    tenantInvoice.discountAmount = 0;
+    tenantInvoice.billingDate = paidAt || new Date();
+    tenantInvoice.dueDate = dueAt || null;
+    tenantInvoice.paidAt = paidAt || null;
+    tenantInvoice.gatewayInvoiceId = gatewayInvoiceId || tenantInvoice.gatewayInvoiceId;
+    tenantInvoice.invoiceUrl = pdfUrl || tenantInvoice.invoiceUrl;
+    tenantInvoice.lineItems = [
+      {
+        description: `${plan.name} subscription`,
+        quantity: 1,
+        unitAmount: amount || 0,
+        totalAmount: amount || 0,
+        type: 'subscription',
+      },
+    ];
+    tenantInvoice.metadata = {
+      ...(tenantInvoice.metadata || {}),
+      planSlug: plan.slug,
+      legacyInvoiceId: legacyInvoice._id.toString(),
+      ...metadata,
+    };
+    await tenantInvoice.save();
+
+    return { legacyInvoice, tenantInvoice };
+  }
+
+  async _recordTransaction({
+    tenant,
+    tenantPlan,
+    tenantInvoice = null,
+    gateway,
+    type = 'payment_attempt',
+    gatewayTransactionId = '',
+    gatewayPaymentIntentId = '',
+    gatewayOrderId = '',
+    amount = 0,
+    currency = 'usd',
+    status = 'pending',
+    failureCode = '',
+    failureMessage = '',
+    rawEventRef = '',
+    metadata = {},
+  }) {
+    if (!tenant || !gateway) return null;
+
+    let transaction = null;
+    if (gatewayTransactionId) {
+      transaction = await TenantTransaction.findOne({ gateway, gatewayTransactionId });
+    }
+    if (!transaction && gatewayPaymentIntentId) {
+      transaction = await TenantTransaction.findOne({ gateway, gatewayPaymentIntentId });
+    }
+    if (!transaction && gatewayOrderId) {
+      transaction = await TenantTransaction.findOne({ gateway, gatewayOrderId });
+    }
+    if (!transaction) {
+      transaction = new TenantTransaction({
+        tenantId: tenant._id,
+        gateway,
+      });
+    }
+
+    transaction.tenantPlanId = tenantPlan?._id || transaction.tenantPlanId || null;
+    transaction.tenantInvoiceId = tenantInvoice?._id || transaction.tenantInvoiceId || null;
+    transaction.type = type;
+    transaction.gatewayTransactionId = gatewayTransactionId || transaction.gatewayTransactionId;
+    transaction.gatewayPaymentIntentId = gatewayPaymentIntentId || transaction.gatewayPaymentIntentId;
+    transaction.gatewayOrderId = gatewayOrderId || transaction.gatewayOrderId;
+    transaction.amount = amount || 0;
+    transaction.currency = currency || 'usd';
+    transaction.status = status;
+    transaction.failureCode = failureCode;
+    transaction.failureMessage = failureMessage;
+    transaction.rawEventRef = rawEventRef || transaction.rawEventRef;
+    transaction.processedAt = new Date();
+    transaction.metadata = {
+      ...(transaction.metadata || {}),
+      ...metadata,
+    };
+
+    await transaction.save();
+    return transaction;
   }
 
   // ─── STRIPE CUSTOMER ───────────────────────────────────
@@ -64,29 +467,34 @@ class BillingService {
     if (plan.price === 0) throw new Error('Cannot checkout for a free plan');
 
     // Block if tenant already has an active paid subscription
-    if (tenant.subscription?.status === 'active' && !tenant.subscription?.cancelAtPeriodEnd) {
-      const currentPlan = await Plan.findOne({ slug: tenant.plan, isActive: true });
-      if (currentPlan && currentPlan.price > 0) {
-        throw new Error('You have an active paid subscription. Cancel it first before subscribing to a new plan.');
-      }
+    const currentState = await this._getCurrentTenantPlanAndPlan(tenant._id);
+    if (
+      currentState.tenantPlan &&
+      ['active', 'past_due', 'incomplete'].includes(currentState.tenantPlan.status) &&
+      !currentState.tenantPlan.cancelAtPeriodEnd &&
+      currentState.plan &&
+      currentState.plan.price > 0
+    ) {
+      throw new Error('You have an active paid subscription. Cancel it first before subscribing to a new plan.');
     }
 
     const customer = await this.getOrCreateStripeCustomer(tenant);
 
     // Map billingCycle → Stripe interval
+    const isRecurringSubscription = plan.paymentType === 'subscription' && ['monthly', 'yearly'].includes(plan.cycleType);
     const intervalMap = { monthly: 'month', yearly: 'year' };
-    const interval = intervalMap[plan.billingCycle] || 'month';
+    const interval = intervalMap[plan.cycleType] || 'month';
 
     // Build line items
     let lineItems;
-    if (plan.stripePriceId) {
+    if (isRecurringSubscription && plan.stripePriceId) {
       lineItems = [{ price: plan.stripePriceId, quantity: 1 }];
     } else {
       lineItems = [{
         price_data: {
           currency: plan.currency || 'usd',
           unit_amount: Math.round(plan.price * 100), // dollars → cents
-          recurring: { interval },
+          ...(isRecurringSubscription ? { recurring: { interval } } : {}),
           product_data: {
             name: `${plan.name} Plan`,
             description: plan.description || `${plan.name} subscription`,
@@ -98,7 +506,7 @@ class BillingService {
 
     const session = await this.stripe.checkout.sessions.create({
       customer: customer.id,
-      mode: 'subscription',
+      mode: isRecurringSubscription ? 'subscription' : 'payment',
       payment_method_types: ['card'],
       line_items: lineItems,
       success_url: `${successUrl}?session_id={CHECKOUT_SESSION_ID}`,
@@ -106,15 +514,34 @@ class BillingService {
       metadata: {
         tenantId: tenant._id.toString(),
         planSlug: plan.slug,
+        paymentType: plan.paymentType,
+        cycleType: plan.cycleType,
+        customDays: String(plan.customDays || ''),
       },
-      subscription_data: {
-        metadata: {
-          tenantId: tenant._id.toString(),
-          planSlug: plan.slug,
+      ...(isRecurringSubscription ? {
+        subscription_data: {
+          metadata: {
+            tenantId: tenant._id.toString(),
+            planSlug: plan.slug,
+          },
         },
-      },
+      } : {}),
       allow_promotion_codes: true,
       billing_address_collection: 'required',
+    });
+
+    await this._recordTransaction({
+      tenant,
+      gateway: 'stripe',
+      type: 'payment_attempt',
+      gatewayTransactionId: session.id,
+      amount: session.amount_total || Math.round(plan.price * 100),
+      currency: session.currency || plan.currency || 'usd',
+      status: 'pending',
+      metadata: {
+        event: 'checkout_session_created',
+        planSlug: plan.slug,
+      },
     });
 
     return { sessionId: session.id, url: session.url };
@@ -126,7 +553,7 @@ class BillingService {
     if (!this.stripe) throw new Error('Stripe is not configured');
 
     const session = await this.stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ['subscription'],
+      expand: ['subscription', 'invoice'],
     });
 
     if (session.payment_status !== 'paid') {
@@ -140,73 +567,197 @@ class BillingService {
     const tenant = await Tenant.findById(tenantId);
     if (!tenant) throw new Error('Tenant not found');
 
-    // Only update if not already activated by webhook
-    if (tenant.subscription?.id !== subscription.id) {
-      const plan = await Plan.findOne({ slug: planSlug });
-      tenant.plan = planSlug;
-      tenant.subscription = {
-        id: subscription.id,
-        status: subscription.status,
-        gateway: 'stripe',
-        planSlug,
-        currentPeriodStart: new Date(subscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-        cancelAtPeriodEnd: false,
-      };
-      await tenant.save();
-    }
+    const plan = await Plan.findOne({ slug: planSlug });
+    if (!plan) throw new Error('Plan not found');
 
+    const now = new Date();
+    const durationDays = this._getPlanDurationDays(plan);
+    const periodEnd = subscription?.current_period_end
+      ? new Date(subscription.current_period_end * 1000)
+      : (durationDays ? new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000) : null);
+    const subscriptionState = subscription
+      ? {
+          id: subscription.id,
+          status: subscription.status,
+          gateway: 'stripe',
+          planSlug,
+          currentPeriodStart: new Date(subscription.current_period_start * 1000),
+          currentPeriodEnd: periodEnd,
+          cancelAtPeriodEnd: false,
+        }
+      : {
+          id: session.payment_intent || session.id,
+          status: 'active',
+          gateway: 'stripe',
+          planSlug,
+          currentPeriodStart: now,
+          currentPeriodEnd: periodEnd,
+          cancelAtPeriodEnd: false,
+        };
+
+    const tenantPlan = await this._transitionTenantPlanForCheckout(tenant, plan, subscriptionState, {
+      status: subscription ? subscription.status : 'active',
+      startDate: subscriptionState.currentPeriodStart,
+      currentPeriodStart: subscriptionState.currentPeriodStart,
+      currentPeriodEnd: subscriptionState.currentPeriodEnd,
+      nextBillingDate: plan.paymentType === 'subscription' ? subscriptionState.currentPeriodEnd : null,
+      metadata: {
+        event: 'checkout_session_verified',
+        checkoutSessionId: session.id,
+        paymentType: plan.paymentType,
+        cycleType: plan.cycleType,
+      },
+    });
+
+    const invoice = session.invoice;
+    const mirrored = await this._ensureInvoiceMirrors({
+      tenant,
+      tenantPlan,
+      plan,
+      gatewayInvoiceId: invoice?.id || '',
+      amount: invoice?.amount_paid ?? session.amount_total ?? Math.round(plan.price * 100),
+      currency: invoice?.currency || session.currency || plan.currency || 'usd',
+      status: 'paid',
+      paidAt: invoice?.status_transitions?.paid_at ? new Date(invoice.status_transitions.paid_at * 1000) : new Date(),
+      dueAt: invoice?.due_date ? new Date(invoice.due_date * 1000) : null,
+      periodStart: tenantPlan.currentPeriodStart,
+      periodEnd: tenantPlan.currentPeriodEnd,
+      pdfUrl: invoice?.invoice_pdf || '',
+      metadata: {
+        event: 'checkout_session_verified',
+        checkoutSessionId: session.id,
+      },
+    });
+
+    await this._recordTransaction({
+      tenant,
+      tenantPlan,
+      tenantInvoice: mirrored.tenantInvoice,
+      gateway: 'stripe',
+      type: 'charge',
+      gatewayTransactionId: invoice?.charge || invoice?.id || session.payment_intent || session.id,
+      gatewayPaymentIntentId: invoice?.payment_intent || session.payment_intent || '',
+      amount: invoice?.amount_paid ?? session.amount_total ?? Math.round(plan.price * 100),
+      currency: invoice?.currency || session.currency || plan.currency || 'usd',
+      status: 'success',
+      metadata: {
+        event: 'checkout_session_verified',
+        planSlug,
+        checkoutSessionId: session.id,
+      },
+    });
+
+    const latestStatus = await this.getSubscriptionStatus(tenantId);
     return {
       status: 'active',
-      plan: planSlug,
-      subscription: tenant.subscription,
+      plan: latestStatus.plan,
+      subscription: latestStatus.subscription,
     };
   }
 
   // ─── CANCEL SUBSCRIPTION ──────────────────────────────
 
   async cancelSubscription(tenantId, immediate = false) {
-    const tenant = await Tenant.findById(tenantId);
+    const { tenant, tenantPlan, plan } = await this._getTenantPlanContext({ tenantId });
     if (!tenant) throw new Error('Tenant not found');
-    if (!tenant.subscription?.id) throw new Error('No active subscription to cancel');
+    if (!tenantPlan?.gatewaySubscriptionId || tenantPlan.gateway !== 'stripe') {
+      throw new Error('No active subscription to cancel');
+    }
+    if (!plan || plan.paymentType !== 'subscription') {
+      throw new Error('Only recurring subscriptions can be canceled');
+    }
 
-    if (this.stripe && tenant.subscription.gateway === 'stripe') {
+    if (this.stripe) {
       if (immediate) {
-        await this.stripe.subscriptions.cancel(tenant.subscription.id);
+        await this.stripe.subscriptions.cancel(tenantPlan.gatewaySubscriptionId);
       } else {
-        await this.stripe.subscriptions.update(tenant.subscription.id, {
+        await this.stripe.subscriptions.update(tenantPlan.gatewaySubscriptionId, {
           cancel_at_period_end: true,
         });
       }
     }
 
+    const cancellationDate = new Date();
+    let updatedTenantPlan = await this._ensureTenantPlanRecord(
+      tenant,
+      plan,
+      {
+        id: tenantPlan.gatewaySubscriptionId,
+        status: immediate ? 'canceled' : 'canceling',
+        gateway: tenantPlan.gateway,
+        currentPeriodStart: tenantPlan.currentPeriodStart || tenantPlan.startDate || null,
+        currentPeriodEnd: tenantPlan.currentPeriodEnd || tenantPlan.endDate || null,
+        cancelAtPeriodEnd: !immediate,
+        canceledAt: cancellationDate,
+      },
+      {
+        status: immediate ? 'canceled' : 'canceling',
+        startDate: tenantPlan.startDate || tenantPlan.currentPeriodStart || new Date(),
+        currentPeriodStart: tenantPlan.currentPeriodStart || tenantPlan.startDate || null,
+        currentPeriodEnd: tenantPlan.currentPeriodEnd || tenantPlan.endDate || null,
+        nextBillingDate: immediate ? null : (tenantPlan.currentPeriodEnd || tenantPlan.endDate || null),
+        cancelAtPeriodEnd: !immediate,
+        canceledAt: cancellationDate,
+        endedAt: immediate ? cancellationDate : null,
+        metadata: {
+          event: immediate ? 'subscription_canceled_immediately' : 'subscription_cancel_scheduled',
+        },
+      }
+    );
+
+    let freePlan = null;
     if (immediate) {
-      const freePlan = await Plan.findOne({ price: 0, isActive: true }).sort({ sortOrder: 1 });
-      tenant.plan = freePlan?.slug || 'trial';
-      tenant.subscription = {
-        id: tenant.subscription.id,
-        status: 'canceled',
-        gateway: tenant.subscription.gateway,
-        planSlug: tenant.subscription.planSlug,
-        canceledAt: new Date(),
-        cancelAtPeriodEnd: false,
-      };
-    } else {
-      tenant.subscription = {
-        ...tenant.subscription.toObject(),
-        status: 'canceling',
-        cancelAtPeriodEnd: true,
-        canceledAt: new Date(),
-      };
+      freePlan = await this._getFreeFallbackPlan();
     }
-    await tenant.save();
+
+    if (immediate && freePlan) {
+      const freeTenantPlan = await this._ensureTenantPlanRecord(
+        tenant,
+        freePlan,
+        {
+          status: 'active',
+          gateway: null,
+          cancelAtPeriodEnd: false,
+          currentPeriodStart: cancellationDate,
+          currentPeriodEnd: null,
+        },
+        {
+          status: 'active',
+          gateway: null,
+          startDate: cancellationDate,
+          currentPeriodStart: cancellationDate,
+          currentPeriodEnd: null,
+          nextBillingDate: null,
+          cancelAtPeriodEnd: false,
+          previousTenantPlanId: updatedTenantPlan?._id || null,
+          metadata: {
+            event: 'subscription_fallback_to_free',
+          },
+        }
+      );
+      updatedTenantPlan = freeTenantPlan || updatedTenantPlan;
+    }
+
+    await this._recordTransaction({
+      tenant,
+      tenantPlan: updatedTenantPlan,
+      gateway: tenantPlan.gateway || 'stripe',
+      type: 'webhook_event',
+      gatewayTransactionId: tenantPlan.gatewaySubscriptionId,
+      status: immediate ? 'canceled' : 'pending',
+      metadata: {
+        event: immediate ? 'subscription_canceled_immediately' : 'subscription_cancel_scheduled',
+        planSlug: plan.slug,
+        fallbackPlanSlug: freePlan?.slug || null,
+      },
+    });
 
     return {
       message: immediate
         ? 'Subscription canceled immediately'
         : 'Subscription will cancel at the end of the current billing period',
-      currentPeriodEnd: tenant.subscription.currentPeriodEnd,
-      status: tenant.subscription.status,
+      currentPeriodEnd: tenantPlan.currentPeriodEnd || tenantPlan.endDate || null,
+      status: immediate ? 'canceled' : 'canceling',
     };
   }
 
@@ -215,17 +766,28 @@ class BillingService {
   async getSubscriptionStatus(tenantId) {
     const tenant = await Tenant.findById(tenantId);
     if (!tenant) throw new Error('Tenant not found');
-
-    const plan = await Plan.findOne({ slug: tenant.plan, isActive: true });
+    const { tenantPlan, plan, planSlug } = await this._getCurrentTenantPlanAndPlan(tenantId);
+    const subscription = tenantPlan
+      ? {
+          id: tenantPlan.gatewaySubscriptionId || null,
+          status: tenantPlan.status,
+          gateway: tenantPlan.gateway,
+          planSlug,
+          currentPeriodStart: tenantPlan.currentPeriodStart || tenantPlan.startDate || null,
+          currentPeriodEnd: tenantPlan.currentPeriodEnd || tenantPlan.endDate || null,
+          cancelAtPeriodEnd: !!tenantPlan.cancelAtPeriodEnd,
+          canceledAt: tenantPlan.canceledAt || null,
+        }
+      : null;
 
     return {
-      plan: tenant.plan,
+      plan: planSlug,
       planDetails: plan || null,
-      subscription: tenant.subscription || null,
-      trialStartAt: tenant.trialStartAt,
-      trialEndAt: tenant.trialEndAt,
+      subscription,
+      trialStartAt: tenantPlan?.status === 'trialing' ? (tenantPlan.currentPeriodStart || tenantPlan.startDate || null) : null,
+      trialEndAt: tenantPlan?.status === 'trialing' ? (tenantPlan.currentPeriodEnd || tenantPlan.endDate || null) : null,
       usage: tenant.usage,
-      hasActiveSubscription: ['active', 'canceling'].includes(tenant.subscription?.status),
+      hasActiveSubscription: ['active', 'canceling', 'past_due', 'trialing'].includes(tenantPlan?.status),
       isPaid: plan ? plan.price > 0 : false,
     };
   }
@@ -236,7 +798,7 @@ class BillingService {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object;
-        if (session.mode === 'subscription' && session.payment_status === 'paid') {
+        if (session.payment_status === 'paid') {
           await this._activateFromCheckout(session);
         }
         break;
@@ -280,83 +842,351 @@ class BillingService {
 
     const tenant = await Tenant.findById(tenantId);
     if (!tenant) return;
+    const plan = await Plan.findOne({ slug: planSlug, isActive: true });
+    if (!plan) return;
 
-    const subscription = await this.stripe.subscriptions.retrieve(session.subscription);
+    const now = new Date();
+    const durationDays = this._getPlanDurationDays(plan);
+    const subscription = session.subscription
+      ? await this.stripe.subscriptions.retrieve(session.subscription)
+      : null;
+    const currentPeriodStart = subscription ? new Date(subscription.current_period_start * 1000) : now;
+    const currentPeriodEnd = subscription
+      ? new Date(subscription.current_period_end * 1000)
+      : (durationDays ? new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000) : null);
+    const subscriptionState = subscription
+      ? {
+          id: subscription.id,
+          status: subscription.status,
+          gateway: 'stripe',
+          planSlug,
+          currentPeriodStart,
+          currentPeriodEnd,
+          cancelAtPeriodEnd: false,
+        }
+      : {
+          id: session.payment_intent || session.id,
+          status: 'active',
+          gateway: 'stripe',
+          planSlug,
+          currentPeriodStart,
+          currentPeriodEnd,
+          cancelAtPeriodEnd: false,
+        };
 
-    tenant.plan = planSlug;
-    tenant.subscription = {
-      id: subscription.id,
-      status: subscription.status,
+    const tenantPlan = await this._transitionTenantPlanForCheckout(tenant, plan, subscriptionState, {
+      status: subscription ? subscription.status : 'active',
+      startDate: currentPeriodStart,
+      currentPeriodStart,
+      currentPeriodEnd,
+      nextBillingDate: plan.paymentType === 'subscription' ? currentPeriodEnd : null,
+      metadata: {
+        event: 'checkout.session.completed',
+        checkoutSessionId: session.id,
+      },
+    });
+    await this._recordTransaction({
+      tenant,
+      tenantPlan,
       gateway: 'stripe',
-      planSlug,
-      currentPeriodStart: new Date(subscription.current_period_start * 1000),
-      currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-      cancelAtPeriodEnd: false,
-    };
+      type: 'webhook_event',
+      gatewayTransactionId: subscription?.id || session.id,
+      gatewayPaymentIntentId: session.payment_intent || '',
+      amount: session.amount_total || Math.round(plan.price * 100),
+      currency: session.currency || plan.currency || 'usd',
+      status: 'success',
+      rawEventRef: 'checkout.session.completed',
+      metadata: {
+        event: 'checkout.session.completed',
+        planSlug,
+      },
+    });
     await tenant.save();
     console.log(`[Billing] Subscription activated – tenant ${tenantId} → ${planSlug}`);
   }
 
   async _handleRenewal(invoice) {
-    const tenant = await Tenant.findOne({ stripeCustomerId: invoice.customer });
-    if (!tenant || tenant.subscription?.id !== invoice.subscription) return;
+    const { tenant, tenantPlan, plan } = await this._getTenantPlanContext({
+      gatewaySubscriptionId: invoice.subscription,
+      stripeCustomerId: invoice.customer,
+    });
+    if (!tenant || !tenantPlan || !plan) return;
 
     const subscription = await this.stripe.subscriptions.retrieve(invoice.subscription);
-    tenant.subscription.status = 'active';
-    tenant.subscription.currentPeriodStart = new Date(subscription.current_period_start * 1000);
-    tenant.subscription.currentPeriodEnd = new Date(subscription.current_period_end * 1000);
-    tenant.subscription.cancelAtPeriodEnd = false;
-    tenant.subscription.canceledAt = undefined;
+    const currentPeriodStart = new Date(subscription.current_period_start * 1000);
+    const currentPeriodEnd = new Date(subscription.current_period_end * 1000);
 
     // Reset monthly usage counters on renewal
+    tenant.usage = tenant.usage || {
+      invoiceCount: 0,
+      apiCallsThisMonth: 0,
+      activeUsers: 0,
+      storageMB: 0,
+    };
     tenant.usage.apiCallsThisMonth = 0;
+
+    const updatedTenantPlan = await this._ensureTenantPlanRecord(tenant, plan, {
+      id: invoice.subscription,
+      status: this._mapSubscriptionStatus(subscription.status),
+      gateway: tenantPlan.gateway || 'stripe',
+      currentPeriodStart,
+      currentPeriodEnd,
+      cancelAtPeriodEnd: false,
+    }, {
+      status: 'active',
+      startDate: tenantPlan.startDate || currentPeriodStart,
+      currentPeriodStart,
+      currentPeriodEnd,
+      nextBillingDate: currentPeriodEnd,
+      cancelAtPeriodEnd: false,
+      canceledAt: null,
+      metadata: {
+        event: 'invoice.payment_succeeded',
+        billingReason: invoice.billing_reason,
+      },
+    });
+
+    if (updatedTenantPlan) {
+      updatedTenantPlan.usage.apiCallsThisMonth = 0;
+      await updatedTenantPlan.save();
+    }
+
+    const mirrored = await this._ensureInvoiceMirrors({
+      tenant,
+      tenantPlan: updatedTenantPlan,
+      plan,
+      gatewayInvoiceId: invoice.id || '',
+      amount: invoice.amount_paid ?? invoice.amount_due ?? Math.round(plan.price * 100),
+      currency: invoice.currency || plan.currency || 'usd',
+      status: 'paid',
+      paidAt: invoice.status_transitions?.paid_at ? new Date(invoice.status_transitions.paid_at * 1000) : new Date(),
+      dueAt: invoice.due_date ? new Date(invoice.due_date * 1000) : null,
+      periodStart: invoice.period_start ? new Date(invoice.period_start * 1000) : currentPeriodStart,
+      periodEnd: invoice.period_end ? new Date(invoice.period_end * 1000) : currentPeriodEnd,
+      pdfUrl: invoice.invoice_pdf || '',
+      metadata: {
+        event: 'invoice.payment_succeeded',
+        billingReason: invoice.billing_reason,
+      },
+    });
+
+    await this._recordTransaction({
+      tenant,
+      tenantPlan: updatedTenantPlan,
+      tenantInvoice: mirrored.tenantInvoice,
+      gateway: 'stripe',
+      type: 'charge',
+      gatewayTransactionId: invoice.charge || invoice.id,
+      gatewayPaymentIntentId: invoice.payment_intent || '',
+      amount: invoice.amount_paid ?? invoice.amount_due ?? Math.round(plan.price * 100),
+      currency: invoice.currency || plan.currency || 'usd',
+      status: 'success',
+      rawEventRef: 'invoice.payment_succeeded',
+      metadata: {
+        event: 'invoice.payment_succeeded',
+        planSlug: plan.slug,
+      },
+    });
+
     await tenant.save();
     console.log(`[Billing] Renewal succeeded – tenant ${tenant._id}`);
   }
 
   async _handlePaymentFailed(invoice) {
-    const tenant = await Tenant.findOne({ stripeCustomerId: invoice.customer });
-    if (!tenant) return;
+    const { tenant, tenantPlan, plan } = await this._getTenantPlanContext({
+      gatewaySubscriptionId: invoice.subscription,
+      stripeCustomerId: invoice.customer,
+    });
+    if (!tenant || !tenantPlan || !plan) return;
 
-    tenant.subscription.status = 'past_due';
-    await tenant.save();
+    const updatedTenantPlan = await this._ensureTenantPlanRecord(tenant, plan, {
+      id: invoice.subscription,
+      status: 'past_due',
+      gateway: tenantPlan.gateway || 'stripe',
+      currentPeriodStart: tenantPlan.currentPeriodStart || tenantPlan.startDate || null,
+      currentPeriodEnd: tenantPlan.currentPeriodEnd || tenantPlan.endDate || null,
+      cancelAtPeriodEnd: tenantPlan.cancelAtPeriodEnd,
+      canceledAt: tenantPlan.canceledAt || null,
+    }, {
+      status: 'past_due',
+      startDate: tenantPlan.startDate || tenantPlan.currentPeriodStart || new Date(),
+      currentPeriodStart: tenantPlan.currentPeriodStart || tenantPlan.startDate || null,
+      currentPeriodEnd: tenantPlan.currentPeriodEnd || tenantPlan.endDate || null,
+      nextBillingDate: tenantPlan.nextBillingDate || tenantPlan.currentPeriodEnd || tenantPlan.endDate || null,
+      cancelAtPeriodEnd: tenantPlan.cancelAtPeriodEnd,
+      canceledAt: tenantPlan.canceledAt || null,
+      metadata: {
+        event: 'invoice.payment_failed',
+      },
+    });
+
+    const mirrored = await this._ensureInvoiceMirrors({
+      tenant,
+      tenantPlan: updatedTenantPlan,
+      plan,
+      gatewayInvoiceId: invoice.id || '',
+      amount: invoice.amount_due ?? invoice.amount_paid ?? Math.round(plan.price * 100),
+      currency: invoice.currency || plan.currency || 'usd',
+      status: 'failed',
+      paidAt: null,
+      dueAt: invoice.due_date ? new Date(invoice.due_date * 1000) : null,
+      periodStart: invoice.period_start ? new Date(invoice.period_start * 1000) : (updatedTenantPlan.currentPeriodStart || null),
+      periodEnd: invoice.period_end ? new Date(invoice.period_end * 1000) : (updatedTenantPlan.currentPeriodEnd || null),
+      pdfUrl: invoice.invoice_pdf || '',
+      metadata: {
+        event: 'invoice.payment_failed',
+        attemptCount: invoice.attempt_count || 0,
+      },
+    });
+
+    await this._recordTransaction({
+      tenant,
+      tenantPlan: updatedTenantPlan,
+      tenantInvoice: mirrored.tenantInvoice,
+      gateway: 'stripe',
+      type: 'payment_attempt',
+      gatewayTransactionId: invoice.charge || invoice.id,
+      gatewayPaymentIntentId: invoice.payment_intent || '',
+      amount: invoice.amount_due ?? invoice.amount_paid ?? Math.round(plan.price * 100),
+      currency: invoice.currency || plan.currency || 'usd',
+      status: 'failed',
+      failureCode: invoice.last_finalization_error?.code || invoice.last_payment_error?.code || '',
+      failureMessage: invoice.last_finalization_error?.message || invoice.last_payment_error?.message || 'Stripe payment failed',
+      rawEventRef: 'invoice.payment_failed',
+      metadata: {
+        event: 'invoice.payment_failed',
+        planSlug: plan.slug,
+      },
+    });
+
     console.log(`[Billing] Payment failed – tenant ${tenant._id}`);
   }
 
   async _syncSubscription(subscription) {
-    const tenantId = subscription.metadata?.tenantId;
-    let tenant = tenantId
-      ? await Tenant.findById(tenantId)
-      : await Tenant.findOne({ 'subscription.id': subscription.id });
-    if (!tenant) return;
+    const context = await this._getTenantPlanContext({
+      tenantId: subscription.metadata?.tenantId,
+      gatewaySubscriptionId: subscription.id,
+      stripeCustomerId: subscription.customer,
+      planSlug: subscription.metadata?.planSlug,
+    });
+    if (!context.tenant || !context.tenantPlan || !context.plan) return;
 
-    tenant.subscription.status = subscription.cancel_at_period_end ? 'canceling' : subscription.status;
-    tenant.subscription.currentPeriodStart = new Date(subscription.current_period_start * 1000);
-    tenant.subscription.currentPeriodEnd = new Date(subscription.current_period_end * 1000);
-    tenant.subscription.cancelAtPeriodEnd = !!subscription.cancel_at_period_end;
-    await tenant.save();
-    console.log(`[Billing] Subscription synced – tenant ${tenant._id} → ${tenant.subscription.status}`);
+    const nextStatus = this._mapSubscriptionStatus(subscription.status, !!subscription.cancel_at_period_end);
+    const tenantPlan = await this._ensureTenantPlanRecord(context.tenant, context.plan, {
+      id: subscription.id,
+      status: nextStatus,
+      gateway: context.tenantPlan.gateway || 'stripe',
+      currentPeriodStart: new Date(subscription.current_period_start * 1000),
+      currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+      cancelAtPeriodEnd: !!subscription.cancel_at_period_end,
+      canceledAt: subscription.canceled_at ? new Date(subscription.canceled_at * 1000) : null,
+    }, {
+      status: nextStatus,
+      startDate: context.tenantPlan.startDate || new Date(subscription.current_period_start * 1000),
+      currentPeriodStart: new Date(subscription.current_period_start * 1000),
+      currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+      nextBillingDate: new Date(subscription.current_period_end * 1000),
+      cancelAtPeriodEnd: !!subscription.cancel_at_period_end,
+      canceledAt: subscription.canceled_at ? new Date(subscription.canceled_at * 1000) : null,
+      endedAt: subscription.ended_at ? new Date(subscription.ended_at * 1000) : null,
+      metadata: {
+        event: 'customer.subscription.updated',
+      },
+    });
+
+    await this._recordTransaction({
+      tenant: context.tenant,
+      tenantPlan,
+      gateway: 'stripe',
+      type: 'webhook_event',
+      gatewayTransactionId: subscription.id,
+      status: subscription.cancel_at_period_end ? 'pending' : 'success',
+      rawEventRef: 'customer.subscription.updated',
+      metadata: {
+        event: 'customer.subscription.updated',
+        planSlug: context.plan.slug,
+        subscriptionStatus: nextStatus,
+      },
+    });
+
+    console.log(`[Billing] Subscription synced – tenant ${context.tenant._id} → ${nextStatus}`);
   }
 
   async _handleSubscriptionEnded(subscription) {
-    const tenantId = subscription.metadata?.tenantId;
-    let tenant = tenantId
-      ? await Tenant.findById(tenantId)
-      : await Tenant.findOne({ 'subscription.id': subscription.id });
-    if (!tenant) return;
+    const context = await this._getTenantPlanContext({
+      tenantId: subscription.metadata?.tenantId,
+      gatewaySubscriptionId: subscription.id,
+      stripeCustomerId: subscription.customer,
+      planSlug: subscription.metadata?.planSlug,
+    });
+    if (!context.tenant || !context.tenantPlan || !context.plan) return;
 
-    const freePlan = await Plan.findOne({ price: 0, isActive: true }).sort({ sortOrder: 1 });
-    tenant.plan = freePlan?.slug || 'trial';
-    tenant.subscription = {
+    const endedAt = new Date();
+    const canceledTenantPlan = await this._ensureTenantPlanRecord(context.tenant, context.plan, {
       id: subscription.id,
       status: 'canceled',
-      gateway: 'stripe',
-      planSlug: tenant.subscription?.planSlug,
-      canceledAt: new Date(),
+      gateway: context.tenantPlan.gateway || 'stripe',
+      currentPeriodStart: context.tenantPlan.currentPeriodStart || context.tenantPlan.startDate || null,
+      currentPeriodEnd: context.tenantPlan.currentPeriodEnd || context.tenantPlan.endDate || null,
       cancelAtPeriodEnd: false,
-    };
-    await tenant.save();
-    console.log(`[Billing] Subscription ended – tenant ${tenant._id} reverted to ${tenant.plan}`);
+      canceledAt: endedAt,
+    }, {
+      status: 'canceled',
+      startDate: context.tenantPlan.startDate || context.tenantPlan.currentPeriodStart || endedAt,
+      currentPeriodStart: context.tenantPlan.currentPeriodStart || context.tenantPlan.startDate || null,
+      currentPeriodEnd: context.tenantPlan.currentPeriodEnd || context.tenantPlan.endDate || null,
+      nextBillingDate: null,
+      cancelAtPeriodEnd: false,
+      canceledAt: endedAt,
+      endedAt,
+      metadata: {
+        event: 'customer.subscription.deleted',
+      },
+    });
+
+    const freePlan = await this._getFreeFallbackPlan();
+    let fallbackTenantPlan = null;
+    if (freePlan) {
+      fallbackTenantPlan = await this._ensureTenantPlanRecord(
+        context.tenant,
+        freePlan,
+        {
+          status: 'active',
+          gateway: null,
+          cancelAtPeriodEnd: false,
+          currentPeriodStart: endedAt,
+          currentPeriodEnd: null,
+        },
+        {
+          status: 'active',
+          gateway: null,
+          startDate: endedAt,
+          currentPeriodStart: endedAt,
+          currentPeriodEnd: null,
+          nextBillingDate: null,
+          cancelAtPeriodEnd: false,
+          previousTenantPlanId: canceledTenantPlan?._id || null,
+          metadata: {
+            event: 'fallback_to_free_plan',
+          },
+        }
+      );
+    }
+    await this._recordTransaction({
+      tenant: context.tenant,
+      tenantPlan: fallbackTenantPlan || canceledTenantPlan,
+      gateway: 'stripe',
+      type: 'webhook_event',
+      gatewayTransactionId: subscription.id,
+      status: 'canceled',
+      rawEventRef: 'customer.subscription.deleted',
+      metadata: {
+        event: 'customer.subscription.deleted',
+        fallbackPlan: freePlan?.slug || null,
+      },
+    });
+
+    console.log(`[Billing] Subscription ended – tenant ${context.tenant._id} reverted to ${freePlan?.slug || 'no-fallback-plan'}`);
   }
 
   // ─── RAZORPAY ─────────────────────────────────────────
@@ -377,6 +1207,21 @@ class BillingService {
       receipt: `tenant_${tenantId}_${Date.now()}`,
       notes: { tenantId: tenantId.toString(), planSlug },
     });
+    await this._recordTransaction({
+      tenant,
+      gateway: 'razorpay',
+      type: 'payment_attempt',
+      gatewayTransactionId: order.id,
+      gatewayOrderId: order.id,
+      amount: order.amount || Math.round(plan.price * 100),
+      currency: order.currency || 'INR',
+      status: 'pending',
+      metadata: {
+        event: 'razorpay_order_created',
+        planSlug,
+        receipt: order.receipt,
+      },
+    });
     return order;
   }
 
@@ -394,11 +1239,26 @@ class BillingService {
   async recordUsage(tenantId, metric, count = 1) {
     const tenant = await Tenant.findById(tenantId);
     if (!tenant) throw new Error('Tenant not found');
+    tenant.usage = tenant.usage || {
+      invoiceCount: 0,
+      apiCallsThisMonth: 0,
+      activeUsers: 0,
+      storageMB: 0,
+    };
 
     if (metric === 'invoiceCount') tenant.usage.invoiceCount += count;
     else if (metric === 'apiCallsThisMonth') tenant.usage.apiCallsThisMonth += count;
     else if (metric === 'activeUsers') tenant.usage.activeUsers = Math.max(tenant.usage.activeUsers || 0, count);
     else if (metric === 'storageMB') tenant.usage.storageMB += count;
+
+    const tenantPlan = await this._getCurrentTenantPlan(tenantId);
+    if (tenantPlan) {
+      if (metric === 'invoiceCount') tenantPlan.usage.invoiceCount += count;
+      else if (metric === 'apiCallsThisMonth') tenantPlan.usage.apiCallsThisMonth += count;
+      else if (metric === 'activeUsers') tenantPlan.usage.activeUsers = Math.max(tenantPlan.usage.activeUsers || 0, count);
+      else if (metric === 'storageMB') tenantPlan.usage.storageMB += count;
+      await tenantPlan.save();
+    }
 
     await tenant.save();
     return tenant.usage;
@@ -407,17 +1267,23 @@ class BillingService {
   async checkUsageLimits(tenantId) {
     const tenant = await Tenant.findById(tenantId);
     if (!tenant) throw new Error('Tenant not found');
+    const usage = tenant.usage || {
+      invoiceCount: 0,
+      apiCallsThisMonth: 0,
+      activeUsers: 0,
+      storageMB: 0,
+    };
 
-    const plan = await Plan.findOne({ slug: tenant.plan, isActive: true });
+    const { plan, planSlug } = await this._getCurrentTenantPlanAndPlan(tenantId);
     const limits = plan?.features || { maxUsers: 1, maxBranches: 1, maxProducts: 100, maxInvoicesPerMonth: 50 };
 
     const exceeded = {};
-    if (tenant.usage.invoiceCount > limits.maxInvoicesPerMonth) exceeded.invoiceCount = true;
-    if (tenant.usage.activeUsers > limits.maxUsers) exceeded.activeUsers = true;
+    if (usage.invoiceCount > limits.maxInvoicesPerMonth) exceeded.invoiceCount = true;
+    if (usage.activeUsers > limits.maxUsers) exceeded.activeUsers = true;
 
     return {
-      plan: tenant.plan,
-      usage: tenant.usage,
+      plan: planSlug,
+      usage,
       limits,
       exceeded,
       isOverLimit: Object.keys(exceeded).length > 0,
