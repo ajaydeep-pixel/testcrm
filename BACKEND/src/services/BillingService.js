@@ -433,7 +433,73 @@ class BillingService {
     return transaction;
   }
 
-  // ─── STRIPE CUSTOMER ───────────────────────────────────
+  // --- STRIPE CUSTOMER -----------------------------------
+
+  _getLocationsCatalog() {
+    if (this.locationsCatalog) return this.locationsCatalog;
+
+    try {
+      const locationsPath = path.join(__dirname, '..', '..', '..', 'FRONTEND', 'src', 'data', 'locations.json');
+      const raw = fs.readFileSync(locationsPath, 'utf-8');
+      this.locationsCatalog = JSON.parse(raw);
+    } catch (err) {
+      this.locationsCatalog = { countries: [] };
+    }
+
+    return this.locationsCatalog;
+  }
+
+  _resolveLocationNames(countryId = '', stateId = '', cityId = '') {
+    const locations = this._getLocationsCatalog();
+    const countries = locations.countries || [];
+    const country = countries.find((item) => item.id === countryId);
+    const states = country?.states || [];
+    const state = states.find((item) => item.id === stateId);
+    const cities = state?.cities || [];
+    const city = cities.find((item) => item.id === cityId);
+
+    return {
+      countryCode: country?.id || (countryId && countryId.length <= 3 ? countryId : ''),
+      countryName: country?.name || '',
+      stateName: state?.name || '',
+      cityName: city?.name || '',
+    };
+  }
+
+  _buildStripeBillingDetails(tenant) {
+    const billing = tenant?.billing || {};
+    const source = {
+      name: billing.name || tenant?.name || '',
+      email: billing.email || tenant?.email || '',
+      phone: billing.phone || tenant?.phone || '',
+      address: billing.address || tenant?.address || '',
+      country: billing.country || tenant?.country || '',
+      state: billing.state || tenant?.state || '',
+      city: billing.city || tenant?.city || '',
+      zip: billing.zip || tenant?.zip || '',
+    };
+
+    const resolved = this._resolveLocationNames(source.country, source.state, source.city);
+    const address = {
+      line1: source.address || undefined,
+      city: resolved.cityName || undefined,
+      state: resolved.stateName || undefined,
+      postal_code: source.zip || undefined,
+      country: resolved.countryCode || undefined,
+    };
+
+    Object.keys(address).forEach((key) => {
+      if (!address[key]) delete address[key];
+    });
+
+    return {
+      name: source.name,
+      email: source.email,
+      phone: source.phone,
+      address,
+      resolved,
+    };
+  }
 
   async getOrCreateStripeCustomer(tenant) {
     const billingDetails = this._buildStripeBillingDetails(tenant);
@@ -466,7 +532,104 @@ class BillingService {
     return customer;
   }
 
-  // ─── VERIFY CHECKOUT ──────────────────────────────────
+  // --- CHECKOUT SESSION -----------------------------------
+
+  async createCheckoutSession(tenantId, planSlug, successUrl, cancelUrl) {
+    if (!this.stripe) throw new Error('Stripe is not configured. Add STRIPE_SECRET_KEY to .env');
+
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) throw new Error('Tenant not found');
+
+    const plan = await Plan.findOne({ slug: planSlug, isActive: true });
+    if (!plan) throw new Error('Invalid plan');
+    if (plan.price === 0) throw new Error('Cannot checkout for a free plan');
+
+    const currentState = await this._getCurrentTenantPlanAndPlan(tenant._id);
+    if (
+      currentState.tenantPlan &&
+      ['active', 'past_due', 'incomplete'].includes(currentState.tenantPlan.status) &&
+      !currentState.tenantPlan.cancelAtPeriodEnd &&
+      currentState.plan &&
+      currentState.plan.price > 0
+    ) {
+      throw new Error('You have an active paid subscription. Cancel it first before subscribing to a new plan.');
+    }
+
+    const customer = await this.getOrCreateStripeCustomer(tenant);
+
+    const isRecurringSubscription = plan.paymentType === 'subscription' && ['monthly', 'yearly'].includes(plan.cycleType);
+    const intervalMap = { monthly: 'month', yearly: 'year' };
+    const interval = intervalMap[plan.cycleType] || 'month';
+
+    let lineItems;
+    if (isRecurringSubscription && plan.stripePriceId) {
+      lineItems = [{ price: plan.stripePriceId, quantity: 1 }];
+    } else {
+      lineItems = [{
+        price_data: {
+          currency: plan.currency || 'usd',
+          unit_amount: Math.round(plan.price * 100),
+          ...(isRecurringSubscription ? { recurring: { interval } } : {}),
+          product_data: {
+            name: `${plan.name} Plan`,
+            description: plan.description || `${plan.name} subscription`,
+          },
+        },
+        quantity: 1,
+      }];
+    }
+
+    const session = await this.stripe.checkout.sessions.create({
+      customer: customer.id,
+      mode: isRecurringSubscription ? 'subscription' : 'payment',
+      payment_method_types: ['card'],
+      line_items: lineItems,
+      success_url: `${successUrl}?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: cancelUrl,
+      metadata: {
+        tenantId: tenant._id.toString(),
+        planSlug: plan.slug,
+        paymentType: plan.paymentType,
+        cycleType: plan.cycleType,
+        customDays: String(plan.customDays || ''),
+      },
+      ...(isRecurringSubscription ? {
+        subscription_data: {
+          metadata: {
+            tenantId: tenant._id.toString(),
+            planSlug: plan.slug,
+          },
+        },
+      } : {}),
+      allow_promotion_codes: true,
+      billing_address_collection: 'required',
+      customer_update: {
+        address: 'auto',
+        name: 'auto',
+      },
+      phone_number_collection: {
+        enabled: true,
+      },
+    });
+
+    await this._recordTransaction({
+      tenant,
+      gateway: 'stripe',
+      type: 'payment_attempt',
+      gatewayTransactionId: session.id,
+      amount: session.amount_total || Math.round(plan.price * 100),
+      currency: session.currency || plan.currency || 'usd',
+      status: 'pending',
+      metadata: {
+        event: 'checkout_session_created',
+        planSlug: plan.slug,
+      },
+    });
+
+    return { sessionId: session.id, url: session.url };
+  }
+
+  // --- VERIFY CHECKOUT ──────────────────────────────────
 
   async verifyCheckoutSession(sessionId) {
     if (!this.stripe) throw new Error('Stripe is not configured');
@@ -1238,4 +1401,5 @@ class BillingService {
 }
 
 module.exports = new BillingService();
+
 
