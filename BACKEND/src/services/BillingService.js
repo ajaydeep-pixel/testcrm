@@ -4,6 +4,8 @@
  * Supports Stripe (global) and Razorpay (India)
  */
 
+const fs = require('fs');
+const path = require('path');
 const Stripe = require('stripe');
 const Tenant = require('../models/Tenant');
 const Plan = require('../models/Plan');
@@ -434,117 +436,34 @@ class BillingService {
   // ─── STRIPE CUSTOMER ───────────────────────────────────
 
   async getOrCreateStripeCustomer(tenant) {
+    const billingDetails = this._buildStripeBillingDetails(tenant);
+    const customerPayload = {
+      email: billingDetails.email || tenant.email,
+      name: billingDetails.name || tenant.name,
+      phone: billingDetails.phone || undefined,
+      metadata: { tenantId: tenant._id.toString() },
+    };
+
+    if (Object.keys(billingDetails.address || {}).length > 0) {
+      customerPayload.address = billingDetails.address;
+    }
+
     if (tenant.stripeCustomerId) {
       try {
         const existing = await this.stripe.customers.retrieve(tenant.stripeCustomerId);
-        if (!existing.deleted) return existing;
+        if (!existing.deleted) {
+          return this.stripe.customers.update(tenant.stripeCustomerId, customerPayload);
+        }
       } catch (err) {
         // Customer deleted, will create new
       }
     }
 
-    const customer = await this.stripe.customers.create({
-      email: tenant.email,
-      name: tenant.name,
-      metadata: { tenantId: tenant._id.toString() },
-    });
+    const customer = await this.stripe.customers.create(customerPayload);
 
     tenant.stripeCustomerId = customer.id;
     await tenant.save();
     return customer;
-  }
-
-  // ─── CHECKOUT SESSION ──────────────────────────────────
-
-  async createCheckoutSession(tenantId, planSlug, successUrl, cancelUrl) {
-    if (!this.stripe) throw new Error('Stripe is not configured. Add STRIPE_SECRET_KEY to .env');
-
-    const tenant = await Tenant.findById(tenantId);
-    if (!tenant) throw new Error('Tenant not found');
-
-    const plan = await Plan.findOne({ slug: planSlug, isActive: true });
-    if (!plan) throw new Error('Invalid plan');
-    if (plan.price === 0) throw new Error('Cannot checkout for a free plan');
-
-    // Block if tenant already has an active paid subscription
-    const currentState = await this._getCurrentTenantPlanAndPlan(tenant._id);
-    if (
-      currentState.tenantPlan &&
-      ['active', 'past_due', 'incomplete'].includes(currentState.tenantPlan.status) &&
-      !currentState.tenantPlan.cancelAtPeriodEnd &&
-      currentState.plan &&
-      currentState.plan.price > 0
-    ) {
-      throw new Error('You have an active paid subscription. Cancel it first before subscribing to a new plan.');
-    }
-
-    const customer = await this.getOrCreateStripeCustomer(tenant);
-
-    // Map billingCycle → Stripe interval
-    const isRecurringSubscription = plan.paymentType === 'subscription' && ['monthly', 'yearly'].includes(plan.cycleType);
-    const intervalMap = { monthly: 'month', yearly: 'year' };
-    const interval = intervalMap[plan.cycleType] || 'month';
-
-    // Build line items
-    let lineItems;
-    if (isRecurringSubscription && plan.stripePriceId) {
-      lineItems = [{ price: plan.stripePriceId, quantity: 1 }];
-    } else {
-      lineItems = [{
-        price_data: {
-          currency: plan.currency || 'usd',
-          unit_amount: Math.round(plan.price * 100), // dollars → cents
-          ...(isRecurringSubscription ? { recurring: { interval } } : {}),
-          product_data: {
-            name: `${plan.name} Plan`,
-            description: plan.description || `${plan.name} subscription`,
-          },
-        },
-        quantity: 1,
-      }];
-    }
-
-    const session = await this.stripe.checkout.sessions.create({
-      customer: customer.id,
-      mode: isRecurringSubscription ? 'subscription' : 'payment',
-      payment_method_types: ['card'],
-      line_items: lineItems,
-      success_url: `${successUrl}?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: cancelUrl,
-      metadata: {
-        tenantId: tenant._id.toString(),
-        planSlug: plan.slug,
-        paymentType: plan.paymentType,
-        cycleType: plan.cycleType,
-        customDays: String(plan.customDays || ''),
-      },
-      ...(isRecurringSubscription ? {
-        subscription_data: {
-          metadata: {
-            tenantId: tenant._id.toString(),
-            planSlug: plan.slug,
-          },
-        },
-      } : {}),
-      allow_promotion_codes: true,
-      billing_address_collection: 'required',
-    });
-
-    await this._recordTransaction({
-      tenant,
-      gateway: 'stripe',
-      type: 'payment_attempt',
-      gatewayTransactionId: session.id,
-      amount: session.amount_total || Math.round(plan.price * 100),
-      currency: session.currency || plan.currency || 'usd',
-      status: 'pending',
-      metadata: {
-        event: 'checkout_session_created',
-        planSlug: plan.slug,
-      },
-    });
-
-    return { sessionId: session.id, url: session.url };
   }
 
   // ─── VERIFY CHECKOUT ──────────────────────────────────
@@ -845,10 +764,16 @@ class BillingService {
     const plan = await Plan.findOne({ slug: planSlug, isActive: true });
     if (!plan) return;
 
+    const expandedSession = this.stripe
+      ? await this.stripe.checkout.sessions.retrieve(session.id, {
+          expand: ['subscription', 'invoice'],
+        })
+      : session;
+
     const now = new Date();
     const durationDays = this._getPlanDurationDays(plan);
-    const subscription = session.subscription
-      ? await this.stripe.subscriptions.retrieve(session.subscription)
+    const subscription = expandedSession.subscription
+      ? await this.stripe.subscriptions.retrieve(expandedSession.subscription.id || expandedSession.subscription)
       : null;
     const currentPeriodStart = subscription ? new Date(subscription.current_period_start * 1000) : now;
     const currentPeriodEnd = subscription
@@ -882,18 +807,40 @@ class BillingService {
       nextBillingDate: plan.paymentType === 'subscription' ? currentPeriodEnd : null,
       metadata: {
         event: 'checkout.session.completed',
-        checkoutSessionId: session.id,
+        checkoutSessionId: expandedSession.id,
       },
     });
+
+    const invoice = expandedSession.invoice || null;
+    const mirrored = await this._ensureInvoiceMirrors({
+      tenant,
+      tenantPlan,
+      plan,
+      gatewayInvoiceId: invoice?.id || '',
+      amount: invoice?.amount_paid ?? expandedSession.amount_total ?? Math.round(plan.price * 100),
+      currency: invoice?.currency || expandedSession.currency || plan.currency || 'usd',
+      status: 'paid',
+      paidAt: invoice?.status_transitions?.paid_at ? new Date(invoice.status_transitions.paid_at * 1000) : new Date(),
+      dueAt: invoice?.due_date ? new Date(invoice.due_date * 1000) : null,
+      periodStart: tenantPlan.currentPeriodStart,
+      periodEnd: tenantPlan.currentPeriodEnd,
+      pdfUrl: invoice?.invoice_pdf || '',
+      metadata: {
+        event: 'checkout.session.completed',
+        checkoutSessionId: expandedSession.id,
+      },
+    });
+
     await this._recordTransaction({
       tenant,
       tenantPlan,
+      tenantInvoice: mirrored.tenantInvoice,
       gateway: 'stripe',
-      type: 'webhook_event',
-      gatewayTransactionId: subscription?.id || session.id,
-      gatewayPaymentIntentId: session.payment_intent || '',
-      amount: session.amount_total || Math.round(plan.price * 100),
-      currency: session.currency || plan.currency || 'usd',
+      type: 'charge',
+      gatewayTransactionId: invoice?.charge || invoice?.id || expandedSession.payment_intent || expandedSession.id,
+      gatewayPaymentIntentId: invoice?.payment_intent || expandedSession.payment_intent || '',
+      amount: invoice?.amount_paid ?? expandedSession.amount_total ?? Math.round(plan.price * 100),
+      currency: invoice?.currency || expandedSession.currency || plan.currency || 'usd',
       status: 'success',
       rawEventRef: 'checkout.session.completed',
       metadata: {
@@ -901,7 +848,6 @@ class BillingService {
         planSlug,
       },
     });
-    await tenant.save();
     console.log(`[Billing] Subscription activated – tenant ${tenantId} → ${planSlug}`);
   }
 
@@ -1292,3 +1238,4 @@ class BillingService {
 }
 
 module.exports = new BillingService();
+
