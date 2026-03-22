@@ -18,7 +18,7 @@ export default function TenantCommonHeader({
       className="tenant-header"
       style={{
         width: '100%',
-        maxWidth: useCompactLayout ? 720 : '100%',
+        maxWidth: useCompactLayout ? 860 : '100%',
         margin: '0 auto',
         background: isDark ? '#181f2a' : '#f8fafc',
         borderBottom: isDark ? '1px solid #232a3a' : '1px solid #e5e7eb',

@@ -39,6 +39,11 @@ class RedisMemoryStore {
     return [...this.store.get(key)];
   }
 
+  async sCard(key) {
+    if (!this.store.has(key)) return 0;
+    return this.store.get(key).size;
+  }
+
   async get(key) {
     if (this.isExpired(key)) {
       this.store.delete(key);

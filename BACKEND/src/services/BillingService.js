@@ -355,6 +355,17 @@ class BillingService {
     tenantInvoice.paidAt = paidAt || null;
     tenantInvoice.gatewayInvoiceId = gatewayInvoiceId || tenantInvoice.gatewayInvoiceId;
     tenantInvoice.invoiceUrl = pdfUrl || tenantInvoice.invoiceUrl;
+    const billingDetails = this._buildStripeBillingDetails(tenant);
+    tenantInvoice.billingSnapshot = {
+      name: billingDetails.name || '',
+      email: billingDetails.email || '',
+      phone: billingDetails.phone || '',
+      address: billingDetails.addressText || '',
+      city: billingDetails.resolved?.cityName || '',
+      state: billingDetails.resolved?.stateName || '',
+      zip: billingDetails.zip || '',
+      country: billingDetails.resolved?.countryName || '',
+    };
     tenantInvoice.lineItems = [
       {
         description: `${plan.name} subscription`,
@@ -496,6 +507,11 @@ class BillingService {
       name: source.name,
       email: source.email,
       phone: source.phone,
+      addressText: source.address,
+      city: source.city,
+      state: source.state,
+      zip: source.zip,
+      country: source.country,
       address,
       resolved,
     };

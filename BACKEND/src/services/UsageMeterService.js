@@ -114,7 +114,9 @@ class UsageMeter {
       await this.client.expire(key, 32 * 24 * 60 * 60); // ~1 month
 
       // Get count
-      const count = await this.client.sCard(key);
+      const count = typeof this.client.sCard === 'function'
+        ? await this.client.sCard(key)
+        : (await this.client.sMembers(key)).length;
       return count;
     } catch (err) {
       console.error('Error recording active user:', err);

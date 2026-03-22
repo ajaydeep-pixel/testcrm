@@ -1,5 +1,6 @@
 
 import React from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import BillingInfo from './BillingInfo';
 import BusinessInfo from './BusinessInfo';
 import ProfileInfo from './ProfileInfo';
@@ -8,6 +9,8 @@ import SubscriptionDetails from './SubscriptionDetails';
 import PaymentHistory from './PaymentHistory';
 
 export default function SettingsMenu() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [selectedTab, setSelectedTab] = React.useState(0);
 
   const styles = {
@@ -296,14 +299,45 @@ export default function SettingsMenu() {
     },
   };
 
+  const returnTo = React.useMemo(() => new URLSearchParams(location.search).get('returnTo') || '', [location.search]);
+  const requestedTab = React.useMemo(() => new URLSearchParams(location.search).get('tab') || '', [location.search]);
+
+  const handleBillingSave = React.useCallback(() => {
+    if (returnTo) {
+      navigate(returnTo);
+    }
+  }, [navigate, returnTo]);
+
   const menuOptions = [
-    { label: 'Business Info', component: <BusinessInfo styles={styles} /> },
-    { label: 'Billing Info', component: <BillingInfo styles={styles} /> },
-    { label: 'Profile Info', component: <ProfileInfo styles={styles} /> },
-    { label: 'Password', component: <PasswordChange styles={styles} /> },
-    { label: 'Subscription Details', component: <SubscriptionDetails styles={styles} /> },
-    { label: 'Payment History & Invoices', component: <PaymentHistory styles={styles} /> },
+    { key: 'business-info', label: 'Business Info', component: <BusinessInfo styles={styles} /> },
+    { key: 'billing-info', label: 'Billing Info', component: <BillingInfo styles={styles} onSave={handleBillingSave} autoEdit={Boolean(returnTo && requestedTab === 'billing-info')} /> },
+    { key: 'profile-info', label: 'Profile Info', component: <ProfileInfo styles={styles} /> },
+    { key: 'password', label: 'Password', component: <PasswordChange styles={styles} /> },
+    { key: 'subscription-details', label: 'Subscription Details', component: <SubscriptionDetails styles={styles} /> },
+    { key: 'payment-history', label: 'Payment History & Invoices', component: <PaymentHistory styles={styles} /> },
   ];
+
+  React.useEffect(() => {
+    const tabKey = new URLSearchParams(location.search).get('tab');
+    if (!tabKey) return;
+
+    const tabIndex = menuOptions.findIndex((option) => option.key === tabKey);
+    if (tabIndex >= 0 && tabIndex !== selectedTab) {
+      setSelectedTab(tabIndex);
+    }
+  }, [location.search, menuOptions, selectedTab]);
+
+  const handleTabChange = (idx) => {
+    setSelectedTab(idx);
+
+    const params = new URLSearchParams(location.search);
+    params.set('tab', menuOptions[idx].key);
+    if (returnTo) {
+      params.set('returnTo', returnTo);
+    }
+
+    navigate(`${location.pathname}?${params.toString()}`, { replace: true });
+  };
 
   return (
     <div style={styles.page}>
@@ -316,7 +350,7 @@ export default function SettingsMenu() {
                 {menuOptions.map((option, idx) => (
                   <button
                     key={option.label}
-                    onClick={() => setSelectedTab(idx)}
+                    onClick={() => handleTabChange(idx)}
                     style={styles.tab(selectedTab === idx)}
                     className="settings-tab"
                   >

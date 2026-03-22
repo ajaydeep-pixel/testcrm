@@ -8,6 +8,26 @@ const Tenant = require('../models/Tenant');
 const Invoice = require('../models/Invoice');
 const Plan = require('../models/Plan');
 const TenantPlan = require('../models/TenantPlan');
+const TenantInvoice = require('../models/TenantInvoice');
+
+const mapTenantInvoiceResponse = (invoice) => {
+  const raw = typeof invoice.toObject === 'function' ? invoice.toObject() : invoice;
+  return {
+    ...raw,
+    pdfUrl: raw.invoiceUrl || raw.pdfUrl || '',
+    plan: raw.metadata?.planSlug || raw.plan || '',
+  };
+};
+
+const mapLegacyInvoiceResponse = (invoice) => {
+  const raw = typeof invoice.toObject === 'function' ? invoice.toObject() : invoice;
+  return {
+    ...raw,
+    pdfUrl: raw.pdfUrl || '',
+    invoiceUrl: raw.pdfUrl || raw.invoiceUrl || '',
+    billingSnapshot: raw.billingSnapshot || null,
+  };
+};
 
 /**
  * GET /api/billing/plans (public)
@@ -221,11 +241,20 @@ exports.listInvoices = async (req, res) => {
     if (status) query.status = status;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
+    const tenantInvoices = await TenantInvoice.find(query).sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit));
+    if (tenantInvoices.length > 0) {
+      const total = await TenantInvoice.countDocuments(query);
+      return res.json({
+        invoices: tenantInvoices.map(mapTenantInvoiceResponse),
+        pagination: { total, page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / parseInt(limit)) },
+      });
+    }
+
     const invoices = await Invoice.find(query).sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit));
     const total = await Invoice.countDocuments(query);
 
     res.json({
-      invoices,
+      invoices: invoices.map(mapLegacyInvoiceResponse),
       pagination: { total, page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / parseInt(limit)) },
     });
   } catch (err) {
@@ -238,9 +267,14 @@ exports.listInvoices = async (req, res) => {
  */
 exports.getInvoice = async (req, res) => {
   try {
+    const tenantInvoice = await TenantInvoice.findOne({ _id: req.params.invoiceId, tenantId: req.tenantId });
+    if (tenantInvoice) {
+      return res.json(mapTenantInvoiceResponse(tenantInvoice));
+    }
+
     const invoice = await Invoice.findOne({ _id: req.params.invoiceId, tenantId: req.tenantId });
     if (!invoice) return res.status(404).json({ message: 'Invoice not found' });
-    res.json(invoice);
+    res.json(mapLegacyInvoiceResponse(invoice));
   } catch (err) {
     res.status(500).json({ message: 'Failed to get invoice', error: err.message });
   }

@@ -3,7 +3,7 @@ import { settingsAPI } from '../services/api';
 import { useToast } from './Toast';
 import locations from '../data/locations.json';
 
-export default function BillingInfo({ onSave, styles }) {
+export default function BillingInfo({ onSave, styles, autoEdit = false }) {
   const emptyBusiness = {
     name: '',
     email: '',
@@ -74,6 +74,12 @@ export default function BillingInfo({ onSave, styles }) {
       isMounted = false;
     };
   }, [toast]);
+
+  useEffect(() => {
+    if (autoEdit && !loading) {
+      setEditing(true);
+    }
+  }, [autoEdit, loading]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;

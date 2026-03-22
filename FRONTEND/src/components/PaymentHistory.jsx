@@ -50,7 +50,8 @@ export default function PaymentHistory({ styles }) {
       const invoiceNo = invoice.invoiceNumber || '';
       const status = invoice.status || '';
       const plan = invoice.plan || '';
-      return [invoiceNo, status, plan].some((field) => field.toLowerCase().includes(q));
+      const billingName = invoice.billingSnapshot?.name || '';
+      return [invoiceNo, status, plan, billingName].some((field) => field.toLowerCase().includes(q));
     });
   }, [invoices, search]);
 
@@ -85,15 +86,22 @@ export default function PaymentHistory({ styles }) {
         ) : filteredInvoices.length > 0 ? (
           filteredInvoices.map((invoice) => (
             <div key={invoice._id} style={styles.tableRow}>
-              <div>{invoice.invoiceNumber || '--'}</div>
+              <div>
+                <div>{invoice.invoiceNumber || '--'}</div>
+                {(invoice.billingSnapshot?.name || invoice.plan) && (
+                  <div style={{ color: '#6b7280', fontSize: 12, marginTop: 4 }}>
+                    {invoice.billingSnapshot?.name ? `Billing to ${invoice.billingSnapshot.name}` : `Plan: ${invoice.plan}`}
+                  </div>
+                )}
+              </div>
               <div>{new Date(invoice.createdAt).toLocaleDateString()}</div>
               <div>{formatAmount(invoice.amount, invoice.currency)}</div>
               <div>
                 <span style={styles.statusPill}>{invoice.status || 'unknown'}</span>
               </div>
               <div>
-                {invoice.pdfUrl ? (
-                  <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer" style={styles.linkBtn}>
+                {(invoice.pdfUrl || invoice.invoiceUrl) ? (
+                  <a href={invoice.pdfUrl || invoice.invoiceUrl} target="_blank" rel="noopener noreferrer" style={styles.linkBtn}>
                     View
                   </a>
                 ) : (

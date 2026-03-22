@@ -162,7 +162,7 @@ export default function CheckoutPage() {
   return (
     <div style={{ minHeight: '100vh', background: '#f9fafb', padding: '40px 16px' }}>
       <div style={{ maxWidth: 860, margin: '0 auto' }}>
-        <TenantCommonHeader showNav={false} title="Checkout" subtitle="Review your plan and proceed to payment" />
+        <TenantCommonHeader compact={true} showNav={false} title="Checkout" subtitle="Review your plan and proceed to payment" />
 
         {hasActivePaidSubscription && (
           <div
@@ -220,106 +220,6 @@ export default function CheckoutPage() {
               padding: 24,
             }}
           >
-            <h2 style={{ fontSize: 18, fontWeight: 700 }}>Plan Details</h2>
-
-            <div
-              style={{
-                background: '#eff6ff',
-                borderRadius: 8,
-                padding: 16,
-                marginTop: 12,
-              }}
-            >
-              <div style={{ fontSize: 20, fontWeight: 700 }}>{getPlanDisplayName(plan)} Plan</div>
-
-              <div style={{ marginTop: 8 }}>
-                <span style={{ fontSize: 32, fontWeight: 800 }}>${plan.price}</span>
-                {plan.price > 0 && (
-                  <span style={{ color: '#6b7280' }}>
-                    {plan.paymentType === 'subscription' ? `/ ${cycleLabel}` : ' one-time'}
-                  </span>
-                )}
-              </div>
-
-              {plan.description && (
-                <p style={{ fontSize: 14, marginTop: 8 }}>{plan.description}</p>
-              )}
-            </div>
-
-            <ul style={{ listStyle: 'none', padding: 0, marginTop: 16 }}>
-              {[
-                { label: 'Users', value: plan.features?.maxUsers },
-                { label: 'Branches', value: plan.features?.maxBranches },
-                { label: 'Products', value: plan.features?.maxProducts?.toLocaleString() },
-                { label: 'Invoices/month', value: plan.features?.maxInvoicesPerMonth?.toLocaleString() },
-              ].map((feature) => (
-                <li key={feature.label} style={{ padding: '8px 0', fontSize: 14 }}>
-                  &#10003; {feature.label}: <strong>{feature.value}</strong>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div style={{ display: 'grid', gap: 24 }}>
-            <div
-              style={{
-                background: '#fff',
-                borderRadius: 12,
-                border: '1px solid #e5e7eb',
-                padding: 24,
-              }}
-            >
-              <h2 style={{ fontSize: 18, fontWeight: 700 }}>Billing Summary</h2>
-
-              <div style={{ marginTop: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>{getPlanDisplayName(plan)}</span>
-                  <span>{priceLabel}</span>
-                </div>
-
-                <div
-                  style={{
-                    borderTop: '1px solid #e5e7eb',
-                    marginTop: 12,
-                    paddingTop: 12,
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Subtotal</span>
-                    <span>${plan.price}</span>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Tax</span>
-                    <span>Calculated at checkout</span>
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    borderTop: '1px solid #e5e7eb',
-                    marginTop: 12,
-                    paddingTop: 12,
-                    fontWeight: 700,
-                    fontSize: 18,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <span>Total</span>
-                  <span>{priceLabel}</span>
-                </div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: '#fff',
-                borderRadius: 12,
-                border: '1px solid #e5e7eb',
-                padding: 24,
-              }}
-            >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                 <div>
                   <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Billing Details</h2>
@@ -328,7 +228,7 @@ export default function CheckoutPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => navigate('/settings')}
+                  onClick={() => navigate(`/settings?tab=billing-info&returnTo=${encodeURIComponent(`/checkout/${planSlug}`)}`)}
                   style={{
                     border: '1px solid #d1d5db',
                     background: '#fff',
@@ -386,6 +286,106 @@ export default function CheckoutPage() {
                   No tenant billing info is saved yet. Stripe will still ask for billing details at checkout, but you can save them first in Settings for a smoother flow.
                 </div>
               )}
+          </div>
+
+          <div style={{ display: 'grid', gap: 24 }}>
+            <div
+              style={{
+                background: '#fff',
+                borderRadius: 12,
+                border: '1px solid #e5e7eb',
+                padding: 24,
+              }}
+            >
+              <h2 style={{ fontSize: 18, fontWeight: 700 }}>Plan Details</h2>
+
+              <div
+                style={{
+                  background: '#eff6ff',
+                  borderRadius: 8,
+                  padding: 16,
+                  marginTop: 12,
+                }}
+              >
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{getPlanDisplayName(plan)} Plan</div>
+
+                <div style={{ marginTop: 8 }}>
+                  <span style={{ fontSize: 32, fontWeight: 800 }}>${plan.price}</span>
+                  {plan.price > 0 && (
+                    <span style={{ color: '#6b7280' }}>
+                      {plan.paymentType === 'subscription' ? `/ ${cycleLabel}` : ' one-time'}
+                    </span>
+                  )}
+                </div>
+
+                {plan.description && (
+                  <p style={{ fontSize: 14, marginTop: 8 }}>{plan.description}</p>
+                )}
+              </div>
+
+              <ul style={{ listStyle: 'none', padding: 0, marginTop: 16 }}>
+                {[
+                  { label: 'Users', value: plan.features?.maxUsers },
+                  { label: 'Branches', value: plan.features?.maxBranches },
+                  { label: 'Products', value: plan.features?.maxProducts?.toLocaleString() },
+                  { label: 'Invoices/month', value: plan.features?.maxInvoicesPerMonth?.toLocaleString() },
+                ].map((feature) => (
+                  <li key={feature.label} style={{ padding: '8px 0', fontSize: 14 }}>
+                    &#10003; {feature.label}: <strong>{feature.value}</strong>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div
+              style={{
+                background: '#fff',
+                borderRadius: 12,
+                border: '1px solid #e5e7eb',
+                padding: 24,
+              }}
+            >
+              <h2 style={{ fontSize: 18, fontWeight: 700 }}>Billing Summary</h2>
+
+              <div style={{ marginTop: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{getPlanDisplayName(plan)}</span>
+                  <span>{priceLabel}</span>
+                </div>
+
+                <div
+                  style={{
+                    borderTop: '1px solid #e5e7eb',
+                    marginTop: 12,
+                    paddingTop: 12,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Subtotal</span>
+                    <span>${plan.price}</span>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Tax</span>
+                    <span>Calculated at checkout</span>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    borderTop: '1px solid #e5e7eb',
+                    marginTop: 12,
+                    paddingTop: 12,
+                    fontWeight: 700,
+                    fontSize: 18,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <span>Total</span>
+                  <span>{priceLabel}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

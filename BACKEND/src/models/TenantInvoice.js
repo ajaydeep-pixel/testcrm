@@ -26,6 +26,20 @@ const tenantInvoiceLineItemSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const tenantInvoiceBillingSnapshotSchema = new mongoose.Schema(
+  {
+    name: { type: String, default: '' },
+    email: { type: String, default: '' },
+    phone: { type: String, default: '' },
+    address: { type: String, default: '' },
+    city: { type: String, default: '' },
+    state: { type: String, default: '' },
+    zip: { type: String, default: '' },
+    country: { type: String, default: '' },
+  },
+  { _id: false }
+);
+
 const tenantInvoiceSchema = new mongoose.Schema(
   {
     tenantId: {
@@ -83,6 +97,10 @@ const tenantInvoiceSchema = new mongoose.Schema(
     invoiceUrl: {
       type: String,
       default: '',
+    },
+    billingSnapshot: {
+      type: tenantInvoiceBillingSnapshotSchema,
+      default: () => ({}),
     },
     lineItems: {
       type: [tenantInvoiceLineItemSchema],
