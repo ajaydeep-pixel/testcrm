@@ -56,6 +56,7 @@ export default function TenantCommonHeader({
             {showNav && (
               <nav style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
                 <Link to="/dashboard" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Dashboard</Link>
+                <Link to="/operations" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Operations</Link>
                 <Link to="/settings" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Settings</Link>
               
                 <button

@@ -4,6 +4,7 @@ import { ToastProvider } from './components/Toast';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
+import OperationsPage from './pages/OperationsPage';
 import CheckoutPage from './pages/CheckoutPage';
 import CheckoutSuccess from './pages/CheckoutSuccess';
 import CheckoutCancel from './pages/CheckoutCancel';
@@ -77,6 +78,18 @@ function App() {
             userRole === 'superadmin' ? <Navigate to="/admin" replace /> :
             <Dashboard />
           }
+        />
+        <Route
+          path="/operations/*"
+          element={
+            !isAuthenticated ? <Navigate to="/login" replace /> :
+            userRole === 'superadmin' ? <Navigate to="/admin" replace /> :
+            <OperationsPage />
+          }
+        />
+        <Route
+          path="/crm/*"
+          element={<Navigate to="/operations" replace />}
         />
         <Route
           path="/admin/*"

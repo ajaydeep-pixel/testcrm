@@ -117,4 +117,18 @@ export const inventoryAPI = {
     api.patch(`/inventory/${productId}`, { quantity }),
 };
 
+export const brandsAPI = {
+  getBrands: (params = {}) => api.get('/brands', { params }),
+  createBrand: (data) => api.post('/brands', data),
+  updateBrand: (id, data) => api.put(`/brands/${id}`, data),
+  deleteBrand: (id) => api.delete(`/brands/${id}`),
+};
+
+export const categoriesAPI = {
+  getCategories: (params = {}) => api.get('/categories', { params }),
+  createCategory: (data) => api.post('/categories', data),
+  updateCategory: (id, data) => api.put(`/categories/${id}`, data),
+  deleteCategory: (id) => api.delete(`/categories/${id}`),
+};
+
 export default api;
