@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { authAPI } from '../services/api';
 import { useTheme } from '../context/ThemeContext';
 
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '');
+const resolveAssetUrl = (url) => (url && url.startsWith('/uploads/') ? `${API_ORIGIN}${url}` : url);
+
 export default function Login({ onLoginSuccess }) {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
@@ -13,14 +17,14 @@ export default function Login({ onLoginSuccess }) {
   const [error, setError] = useState('');
   const [step, setStep] = useState('password');
   const [sessionData, setSessionData] = useState(null);
-  const [branding, setBranding] = useState({ appName: '', tagline: '' });
+  const [branding, setBranding] = useState({ appName: '', tagline: '', logoUrl: '' });
   const isDark = theme === 'dark';
 
   useEffect(() => {
-    fetch('http://localhost:4000/api/branding')
+    fetch(`${API_BASE_URL}/branding`)
       .then((r) => r.json())
       .then((data) => setBranding(data))
-      .catch(() => setBranding({ appName: 'BikeFlow', tagline: 'Cloud POS for medium businesses' }));
+      .catch(() => setBranding({ appName: 'BikeFlow', tagline: 'Cloud POS for medium businesses', logoUrl: '' }));
   }, []);
 
   const handleLoginSuccess = (token, user) => {
@@ -76,12 +80,21 @@ export default function Login({ onLoginSuccess }) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-600 px-4 py-10">
-      <div className="max-w-2xl mx-auto flex flex-col gap-8">
+        <div className="max-w-2xl mx-auto flex flex-col gap-8">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-8 self-center">
             <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">Welcome to {branding.appName || 'BikeFlow'}</h1>
-            <p className="text-gray-600 mt-2">{branding.tagline || 'Set up your business in minutes'}</p>
-          </div>
+              {branding.logoUrl ? (
+                <img
+                  src={resolveAssetUrl(branding.logoUrl)}
+                  alt={branding.appName || 'BikeFlow'}
+                  className="mx-auto mb-4"
+                  style={{ maxHeight: 64, maxWidth: 220, objectFit: 'contain' }}
+                />
+              ) : (
+                <h1 className="text-3xl font-bold text-gray-900">Welcome to {branding.appName || 'BikeFlow'}</h1>
+              )}
+              <p className="text-gray-600 mt-2">{branding.tagline || 'Set up your business in minutes'}</p>
+            </div>
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
               {error}

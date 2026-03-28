@@ -2,6 +2,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const connectDB = require('./src/config/db');
 const seedDatabase = require('./src/scripts/seed');
 
@@ -13,7 +14,9 @@ const { stripeWebhook, razorpayWebhook } = require('./src/controllers/billingCon
 app.post('/api/billing/webhook/stripe', express.raw({ type: 'application/json' }), stripeWebhook);
 app.post('/api/billing/webhook/razorpay', express.json(), razorpayWebhook);
 
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 connectDB().then(() => {
   seedDatabase().catch(err => console.error('Seeding failed:', err));

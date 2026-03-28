@@ -16,30 +16,29 @@ export default function SettingsMenu() {
   const styles = {
     page: {
       minHeight: '100vh',
-      background: '#f3f5f9',
+      background: 'linear-gradient(180deg, #eef4ff 0%, #f7f9fc 18%, #f3f5f9 100%)',
     },
     shell: {
-      maxWidth: 1280,
-      margin: '0 auto',
-      padding: '32px 24px',
+      width: '100%',
+      padding: '18px 24px 28px',
     },
     card: {
       background: '#ffffff',
-      borderRadius: 16,
-      border: '1px solid #e3e8ef',
-      boxShadow: '0 12px 28px rgba(15, 23, 42, 0.08)',
+      borderRadius: 22,
+      border: '1px solid #dfe7f2',
+      boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)',
       padding: 0,
       overflow: 'hidden',
     },
     layout: {
       display: 'grid',
-      gridTemplateColumns: '260px 1fr',
-      minHeight: 520,
+      gridTemplateColumns: '290px minmax(0, 1fr)',
+      minHeight: 'calc(100vh - 180px)',
     },
     sidebar: {
-      background: 'linear-gradient(180deg, #f7f9fc 0%, #f1f4f9 100%)',
+      background: 'linear-gradient(180deg, #f9fbff 0%, #f2f6fb 100%)',
       borderRight: '1px solid #e3e8ef',
-      padding: '20px 12px',
+      padding: '22px 14px',
     },
     sidebarTitle: {
       fontSize: 12,
@@ -59,8 +58,8 @@ export default function SettingsMenu() {
       borderColor: active ? '#c7d2fe' : 'transparent',
       background: active ? '#eef2ff' : 'transparent',
       color: active ? '#1e3a8a' : '#1f2937',
-      borderRadius: 10,
-      padding: '10px 12px',
+      borderRadius: 12,
+      padding: '12px 14px',
       fontWeight: 600,
       fontSize: 14,
       cursor: 'pointer',
@@ -77,20 +76,20 @@ export default function SettingsMenu() {
       fontWeight: 500,
     },
     content: {
-      padding: '24px 28px',
+      padding: '24px 30px 30px',
       background: '#ffffff',
     },
     contentHeader: {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingBottom: 14,
+      paddingBottom: 16,
       borderBottom: '1px solid #eef2f7',
-      marginBottom: 18,
+      marginBottom: 22,
     },
     contentTitle: {
-      fontSize: 18,
-      fontWeight: 700,
+      fontSize: 20,
+      fontWeight: 800,
       color: '#111827',
     },
     contentHint: {
@@ -373,7 +372,8 @@ export default function SettingsMenu() {
       <style>{`
         .settings-layout {
           display: grid;
-          grid-template-columns: 260px 1fr;
+          grid-template-columns: 290px minmax(0, 1fr);
+          width: 100%;
         }
         @media (max-width: 900px) {
           .settings-layout {

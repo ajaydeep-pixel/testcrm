@@ -7,6 +7,9 @@ const express = require('express');
 const router = express.Router();
 const adminCtrl = require('../controllers/adminController');
 const { verifyToken } = require('../middleware/authMiddleware');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
 
 // Superadmin middleware
 const requireSuperadmin = (req, res, next) => {
@@ -19,6 +22,31 @@ const requireSuperadmin = (req, res, next) => {
 
 // All routes require verifyToken + requireSuperadmin
 router.use(verifyToken, requireSuperadmin);
+
+const brandingUploadDir = path.join(__dirname, '..', '..', 'uploads', 'branding');
+if (!fs.existsSync(brandingUploadDir)) {
+  fs.mkdirSync(brandingUploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, brandingUploadDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase() || '.png';
+    cb(null, `branding-${Date.now()}${ext}`);
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype && file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  },
+});
 
 // Dashboard & Metrics
 router.get('/dashboard', adminCtrl.getDashboardMetrics);
@@ -51,5 +79,6 @@ router.delete('/plans/:planId', adminCtrl.deletePlan);
 // Platform Settings
 router.get('/settings', adminCtrl.getSettings);
 router.put('/settings', adminCtrl.updateSettings);
+router.post('/settings/logo', upload.single('logo'), adminCtrl.uploadBrandLogo);
 
 module.exports = router;

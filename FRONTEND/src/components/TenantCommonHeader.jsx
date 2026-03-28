@@ -1,26 +1,79 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '');
+const resolveAssetUrl = (url) => (url && url.startsWith('/uploads/') ? `${API_ORIGIN}${url}` : url);
 
 export default function TenantCommonHeader({
   title,
   subtitle,
   showNav = true,
-  portalLabel = 'Tenant Portal',
+  portalLabel,
   compact = false,
 }) {
+  const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === 'dark';
   const useCompactLayout = compact || !showNav;
+  const [branding, setBranding] = React.useState({ appName: '', logoUrl: '' });
+
+  React.useEffect(() => {
+    let active = true;
+
+    fetch(`${API_BASE_URL}/branding`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (active) {
+          setBranding({
+            appName: data?.appName || 'BikeFlow',
+            logoUrl: data?.logoUrl || '',
+          });
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setBranding({ appName: 'BikeFlow', logoUrl: '' });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const resolvedPortalLabel = portalLabel || branding.appName || 'BikeFlow';
+  const resolvedLogoUrl = branding.logoUrl ? resolveAssetUrl(branding.logoUrl) : '';
+  const isActiveRoute = (path) => location.pathname === path || location.pathname.startsWith(`${path}/`);
+  const navItemStyle = (path) => ({
+    fontWeight: 700,
+    color: isActiveRoute(path)
+      ? (isDark ? '#dbeafe' : '#1d4ed8')
+      : (isDark ? '#e5e7eb' : '#1f2937'),
+    textDecoration: 'none',
+    padding: '7px 12px',
+    borderRadius: 999,
+    background: isActiveRoute(path)
+      ? (isDark ? '#1e3a8a' : '#dbeafe')
+      : (isDark ? '#1f2937' : '#ffffff'),
+    border: isActiveRoute(path)
+      ? (isDark ? '1px solid #60a5fa' : '1px solid #93c5fd')
+      : (isDark ? '1px solid #334155' : '1px solid #dbe3ee'),
+    boxShadow: isActiveRoute(path)
+      ? (isDark ? '0 0 0 1px rgba(96,165,250,0.15)' : '0 4px 12px rgba(59,130,246,0.12)')
+      : 'none',
+    transition: 'all 0.15s ease',
+  });
 
   return (
     <header
       className="tenant-header"
       style={{
         width: '100%',
-        maxWidth: useCompactLayout ? 860 : '100%',
+        maxWidth: useCompactLayout ? 960 : '100%',
         margin: '0 auto',
-        background: isDark ? '#181f2a' : '#f8fafc',
+        background: isDark ? '#141b26' : '#f8fbff',
         borderBottom: isDark ? '1px solid #232a3a' : '1px solid #e5e7eb',
         borderRadius: useCompactLayout ? 16 : 0,
         color: isDark ? '#f3f4f6' : '#111827',
@@ -33,34 +86,80 @@ export default function TenantCommonHeader({
     >
       <div
         style={{
-          maxWidth: useCompactLayout ? 720 : 1280,
+          maxWidth: useCompactLayout ? 900 : '100%',
           margin: '0 auto',
-          padding: useCompactLayout ? '24px 24px' : '32px 24px',
+          padding: useCompactLayout ? '18px 20px' : '16px 24px',
           display: 'flex',
           flexDirection: 'column',
-          gap: useCompactLayout ? 10 : 12,
+          gap: 0,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <div
             style={{
-              fontWeight: 700,
-              fontSize: useCompactLayout ? '15px' : '20px',
-              letterSpacing: useCompactLayout ? '0.02em' : 0,
-              color: isDark ? '#f3f4f6' : '#111827',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              minHeight: 36,
             }}
           >
-            {portalLabel}
+            {resolvedLogoUrl ? (
+              <img
+                src={resolvedLogoUrl}
+                alt={resolvedPortalLabel}
+                style={{
+                  height: useCompactLayout ? 56 : 72,
+                  maxWidth: useCompactLayout ? 260 : 340,
+                  objectFit: 'contain',
+                  display: 'block',
+                }}
+              />
+            ) : (
+              <span
+                style={{
+                  fontWeight: 700,
+                  fontSize: useCompactLayout ? '14px' : '15px',
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  color: isDark ? '#f3f4f6' : '#111827',
+                }}
+              >
+                {resolvedPortalLabel}
+              </span>
+            )}
           </div>
-          <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {showNav && (
-              <nav style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-                <Link to="/dashboard" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Dashboard</Link>
-                <Link to="/operations" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Operations</Link>
-                <Link to="/settings" style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827' }}>Settings</Link>
+              <nav style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <Link
+                  to="/dashboard"
+                  style={navItemStyle('/dashboard')}
+                >
+                  Dashboard
+                </Link>
+                <Link
+                  to="/operations"
+                  style={navItemStyle('/operations')}
+                >
+                  Operations
+                </Link>
+                <Link
+                  to="/settings"
+                  style={navItemStyle('/settings')}
+                >
+                  Settings
+                </Link>
               
                 <button
-                  style={{ fontWeight: 600, color: isDark ? '#f3f4f6' : '#111827', background: 'none', border: 'none', cursor: 'pointer' }}
+                  style={{
+                    fontWeight: 600,
+                    color: isDark ? '#fca5a5' : '#b91c1c',
+                    background: isDark ? '#1f2937' : '#ffffff',
+                    border: isDark ? '1px solid #7f1d1d' : '1px solid #fecaca',
+                    cursor: 'pointer',
+                    padding: '7px 12px',
+                    borderRadius: 999,
+                  }}
                   onClick={() => {
                     localStorage.removeItem('token');
                     localStorage.removeItem('user');
@@ -75,9 +174,9 @@ export default function TenantCommonHeader({
               onClick={toggleTheme}
               title={theme === 'light' ? 'Enable Dark Mode' : 'Enable Light Mode'}
               style={{
-                marginLeft: showNav ? 16 : 0,
-                width: 40,
-                height: 40,
+                marginLeft: showNav ? 2 : 0,
+                width: 36,
+                height: 36,
                 borderRadius: 999,
                 border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
                 background: isDark ? '#111827' : '#ffffff',
@@ -110,42 +209,6 @@ export default function TenantCommonHeader({
             </button>
           </div>
         </div>
-        {typeof title !== 'undefined' && (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: useCompactLayout ? 'column' : 'row',
-              alignItems: useCompactLayout ? 'flex-start' : 'center',
-              justifyContent: 'space-between',
-              gap: 16,
-              marginTop: 4,
-            }}
-          >
-            <h1 style={{ fontSize: useCompactLayout ? 22 : 28, fontWeight: 700, margin: 0 }}>{title}</h1>
-            {subtitle && (
-              <div
-                style={{
-                  flex: useCompactLayout ? 'initial' : 1,
-                  display: 'flex',
-                  justifyContent: useCompactLayout ? 'flex-start' : 'flex-end',
-                  width: useCompactLayout ? '100%' : 'auto',
-                }}
-              >
-                <p
-                  style={{
-                    color: '#6b7280',
-                    margin: 0,
-                    textAlign: useCompactLayout ? 'left' : 'right',
-                    maxWidth: 640,
-                    paddingRight: useCompactLayout ? 0 : 6,
-                  }}
-                >
-                  {subtitle}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </header>
   );

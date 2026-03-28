@@ -7,6 +7,8 @@ const User = require('../models/User');
 const Tenant = require('../models/Tenant');
 const Invoice = require('../models/Invoice');
 const AuditLog = require('../models/AuditLog');
+const fs = require('fs');
+const path = require('path');
 const AuthService = require('../services/AuthService');
 const PlatformSettings = require('../models/PlatformSettings');
 const Plan = require('../models/Plan');
@@ -615,6 +617,50 @@ exports.updateSettings = async (req, res) => {
   } catch (err) {
     console.error('Error updating settings:', err);
     res.status(500).json({ message: 'Failed to update settings', error: err.message });
+  }
+};
+
+/**
+ * POST /api/admin/settings/logo
+ */
+exports.uploadBrandLogo = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'Logo file is required' });
+    }
+
+    let settings = await PlatformSettings.findOne({ key: 'platform' });
+    if (!settings) {
+      settings = await PlatformSettings.create({ key: 'platform' });
+    }
+
+    const previousLogoUrl = settings?.branding?.logoUrl || '';
+    const relativeUrl = `/uploads/branding/${req.file.filename}`;
+
+    settings.branding = {
+      ...(settings.branding?.toObject?.() || settings.branding || {}),
+      logoUrl: relativeUrl,
+    };
+    await settings.save();
+
+    if (previousLogoUrl && previousLogoUrl.startsWith('/uploads/branding/')) {
+      const previousFilePath = path.join(__dirname, '..', '..', previousLogoUrl.replace(/^\//, ''));
+      if (fs.existsSync(previousFilePath) && previousFilePath !== req.file.path) {
+        try {
+          fs.unlinkSync(previousFilePath);
+        } catch (unlinkErr) {
+          console.error('Failed to remove previous logo:', unlinkErr.message);
+        }
+      }
+    }
+
+    res.json({
+      message: 'Logo uploaded successfully',
+      logoUrl: relativeUrl,
+    });
+  } catch (err) {
+    console.error('Error uploading brand logo:', err);
+    res.status(500).json({ message: 'Failed to upload logo', error: err.message });
   }
 };
 

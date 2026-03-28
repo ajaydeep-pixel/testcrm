@@ -12,6 +12,9 @@ import { useTheme } from '../context/ThemeContext';
 import { getPlanDisplayName } from '../utils/planDisplay';
 
 const formatPlanLabel = (tenant) => getPlanDisplayName({ slug: tenant?.plan, name: tenant?.planName }, tenant?.plan);
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '');
+const resolveAssetUrl = (url) => (url && url.startsWith('/uploads/') ? `${API_ORIGIN}${url}` : url);
 
 const SuperadminDashboard = () => {
   const toast = useToast();
@@ -34,6 +37,7 @@ const SuperadminDashboard = () => {
   const [platformSettings, setPlatformSettings] = useState(null);
   const [settingsForm, setSettingsForm] = useState(null);
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [currentTenantId, setCurrentTenantId] = useState(null);
   const [tenantDetails, setTenantDetails] = useState(null);
@@ -190,6 +194,56 @@ const SuperadminDashboard = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleLogoUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload a valid image file');
+      event.target.value = '';
+      return;
+    }
+
+    const maxSize = 2 * 1024 * 1024;
+    if (file.size > maxSize) {
+      toast.error('Logo size should be 2MB or less');
+      event.target.value = '';
+      return;
+    }
+
+    setLogoUploading(true);
+    const formData = new FormData();
+    formData.append('logo', file);
+
+    const token = localStorage.getItem('token');
+    fetch('http://localhost:4000/api/admin/settings/logo', {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data?.message || 'Failed to upload logo');
+        }
+        return data;
+      })
+      .then((data) => {
+        setSettingsForm((prev) => ({
+          ...prev,
+          logoUrl: data.logoUrl || prev.logoUrl,
+        }));
+        toast.success('Logo uploaded successfully');
+      })
+      .catch((err) => {
+        toast.error(err.message || 'Failed to upload logo');
+      })
+      .finally(() => {
+        setLogoUploading(false);
+        event.target.value = '';
+      });
   };
 
   // Fetch plans
@@ -1356,13 +1410,51 @@ const SuperadminDashboard = () => {
                 />
               </div>
               <div className={styles.formGroup}>
-                <label>Logo URL</label>
-                <input
-                  type="text"
-                  value={settingsForm.logoUrl}
-                  onChange={(e) => setSettingsForm({ ...settingsForm, logoUrl: e.target.value })}
-                  placeholder="https://example.com/logo.png"
-                />
+                <label>Logo</label>
+                <div style={{ display: 'grid', gap: '10px' }}>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleLogoUpload}
+                    style={{ padding: '8px 0' }}
+                  />
+                  {logoUploading && (
+                    <div style={{ fontSize: '13px', color: '#6b7280' }}>Processing logo...</div>
+                  )}
+                  {settingsForm.logoUrl ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                      <div style={{
+                        width: '64px',
+                        height: '64px',
+                        borderRadius: '12px',
+                        border: '1px solid #dbe3ee',
+                        background: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                      }}>
+                        <img
+                          src={resolveAssetUrl(settingsForm.logoUrl)}
+                          alt="Logo preview"
+                          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className={styles.btnSmallDanger}
+                        style={{ padding: '8px 14px' }}
+                        onClick={() => setSettingsForm({ ...settingsForm, logoUrl: '' })}
+                      >
+                        Remove Logo
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '13px', color: '#6b7280' }}>
+                      Upload a logo image from your computer.
+                    </div>
+                  )}
+                </div>
               </div>
               <div className={styles.formGroup}>
                 <label>Primary Color</label>

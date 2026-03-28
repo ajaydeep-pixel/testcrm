@@ -161,7 +161,10 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div
+      className="min-h-screen"
+      style={{ background: 'linear-gradient(180deg, #eef4ff 0%, #f7f9fc 18%, #f3f5f9 100%)' }}
+    >
       <SuperadminReturnBar />
       <TenantCommonHeader
         title="Dashboard"
@@ -169,7 +172,7 @@ export default function Dashboard() {
       />
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="w-full px-4 sm:px-6 lg:px-8 xl:px-10 py-6 lg:py-8">
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
             {error}
@@ -190,7 +193,7 @@ export default function Dashboard() {
         </div>
 
         {/* Bottom: Recent Activity */}
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_18px_40px_rgba(15,23,42,0.08)] p-6 lg:p-7">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Quick Stats</h2>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="text-center p-4 bg-blue-50 rounded">
@@ -221,7 +224,7 @@ export default function Dashboard() {
         </div>
 
         {/* Plan & Usage Section */}
-        <div className="bg-white rounded-lg shadow p-6 mt-8">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-[0_18px_40px_rgba(15,23,42,0.08)] p-6 lg:p-7 mt-8">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-semibold text-gray-900">Your Plan & Usage</h2>
             <div style={{ display: 'flex', gap: 8 }}>

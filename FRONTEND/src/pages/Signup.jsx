@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { authAPI, billingAPI } from '../services/api';
 import { getPlanDisplayName } from '../utils/planDisplay';
 
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '');
+const resolveAssetUrl = (url) => (url && url.startsWith('/uploads/') ? `${API_ORIGIN}${url}` : url);
+
 const formatPlanPrice = (plan) => {
   if (!plan || Number(plan.price || 0) === 0) return 'Free';
   return `$${Number(plan.price).toFixed(2)}`;
@@ -32,7 +36,7 @@ export default function Signup({ onSignupSuccess }) {
   const [step, setStep] = useState('company');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [branding, setBranding] = useState({ appName: '', tagline: '' });
+  const [branding, setBranding] = useState({ appName: '', tagline: '', logoUrl: '' });
 
   // Company info
   const [companyName, setCompanyName] = useState('');
@@ -59,10 +63,10 @@ export default function Signup({ onSignupSuccess }) {
   const currencies = ['USD', 'EUR', 'GBP', 'INR', 'AUD', 'CAD'];
 
   useEffect(() => {
-    fetch('http://localhost:4000/api/branding')
+    fetch(`${API_BASE_URL}/branding`)
       .then(r => r.json())
       .then(data => setBranding(data))
-      .catch(() => setBranding({ appName: 'BikeFlow', tagline: 'Set up your business in minutes' }));
+      .catch(() => setBranding({ appName: 'BikeFlow', tagline: 'Set up your business in minutes', logoUrl: '' }));
   }, []);
 
   useEffect(() => {
@@ -162,7 +166,16 @@ export default function Signup({ onSignupSuccess }) {
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-8">
         
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Welcome to {branding.appName || 'BikeFlow'}</h1>
+          {branding.logoUrl ? (
+            <img
+              src={resolveAssetUrl(branding.logoUrl)}
+              alt={branding.appName || 'BikeFlow'}
+              className="mx-auto mb-4"
+              style={{ maxHeight: 64, maxWidth: 220, objectFit: 'contain' }}
+            />
+          ) : (
+            <h1 className="text-3xl font-bold text-gray-900">Welcome to {branding.appName || 'BikeFlow'}</h1>
+          )}
           <p className="text-gray-600 mt-2">{branding.tagline || 'Set up your business in minutes'}</p>
         </div>
 

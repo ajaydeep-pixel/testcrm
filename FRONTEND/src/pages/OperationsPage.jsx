@@ -158,12 +158,11 @@ const operationSections = [
 const shellStyles = {
   page: {
     minHeight: '100vh',
-    background: '#f3f5f9',
+    background: 'linear-gradient(180deg, #eef4ff 0%, #f7f9fc 18%, #f3f5f9 100%)',
   },
   shell: {
-    maxWidth: 1280,
-    margin: '0 auto',
-    padding: '24px',
+    width: '100%',
+    padding: '12px 16px 20px',
   },
   layout: {
     display: 'grid',
@@ -174,18 +173,21 @@ const shellStyles = {
     background: '#ffffff',
     border: '1px solid #e3e8ef',
     borderRadius: 18,
-    padding: '14px 12px',
-    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.06)',
+    padding: '12px 8px',
+    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.07)',
     position: 'sticky',
-    top: 20,
-    width: collapsed ? 84 : 'auto',
+    top: 12,
+    width: collapsed ? 70 : 228,
+    minWidth: collapsed ? 70 : 228,
+    maxWidth: collapsed ? 70 : 228,
+    minHeight: 'calc(100vh - 170px)',
   }),
   sidebarTop: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
-    padding: '6px 6px 12px',
+    gap: 6,
+    padding: '4px 4px 10px',
   },
   sidebarTitle: {
     fontSize: 12,
@@ -197,9 +199,9 @@ const shellStyles = {
   collapseBtn: {
     border: '1px solid #dbe3ee',
     background: '#f8fafc',
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 30,
+    height: 30,
+    borderRadius: 8,
     display: 'grid',
     placeItems: 'center',
     cursor: 'pointer',
@@ -214,19 +216,19 @@ const shellStyles = {
     borderColor: active ? '#c7d2fe' : 'transparent',
     background: active ? '#eef2ff' : 'transparent',
     color: active ? '#1e3a8a' : '#1f2937',
-    borderRadius: 12,
+    borderRadius: 10,
     transition: 'all 0.12s ease',
     width: '100%',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
-    padding: collapsed ? '10px 8px' : '10px 12px',
+    gap: 8,
+    padding: collapsed ? '8px 6px' : '8px 10px',
   }),
   tabMain: {
     display: 'flex',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     minWidth: 0,
     flex: 1,
   },
@@ -238,11 +240,11 @@ const shellStyles = {
     cursor: 'pointer',
     textAlign: 'left',
     fontWeight: 700,
-    fontSize: 14,
+    fontSize: 13,
     color: 'inherit',
     display: 'flex',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     minWidth: 0,
     flex: 1,
   },
@@ -262,8 +264,8 @@ const shellStyles = {
     color: 'inherit',
   },
   subMenuWrap: {
-    margin: '4px 0 8px 14px',
-    paddingLeft: 10,
+    margin: '4px 0 8px 12px',
+    paddingLeft: 8,
     borderLeft: '2px solid #e5e7eb',
     display: 'grid',
     gap: 4,
@@ -272,10 +274,10 @@ const shellStyles = {
     border: 'none',
     background: active ? '#eff6ff' : 'transparent',
     color: active ? '#1d4ed8' : '#475569',
-    borderRadius: 10,
-    padding: '8px 10px',
+    borderRadius: 8,
+    padding: '7px 8px',
     fontWeight: 600,
-    fontSize: 13,
+    fontSize: 12,
     cursor: 'pointer',
     textAlign: 'left',
     width: '100%',
@@ -284,20 +286,12 @@ const shellStyles = {
     display: 'grid',
     gap: 18,
   },
-  compactHeader: {
-    background: '#ffffff',
-    borderRadius: 18,
-    border: '1px solid #e5e7eb',
-    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.06)',
-    padding: 20,
-    display: 'block',
-  },
   placeholderCard: {
     background: '#ffffff',
     borderRadius: 18,
-    border: '1px solid #e5e7eb',
-    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.06)',
-    padding: 24,
+    border: '1px solid #dfe7f2',
+    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.07)',
+    padding: 20,
     color: '#475569',
     lineHeight: 1.7,
   },
@@ -325,7 +319,7 @@ export default function OperationsPage() {
   const currentDescription = inventoryChild ? inventoryChild.description : section.description;
   const layoutStyle = {
     ...shellStyles.layout,
-    gridTemplateColumns: sidebarCollapsed ? '84px 1fr' : '280px 1fr',
+    gridTemplateColumns: sidebarCollapsed ? '70px minmax(0, 1fr)' : '228px minmax(0, 1fr)',
   };
 
   const toggleMenu = (key) => {
@@ -344,8 +338,9 @@ export default function OperationsPage() {
             update: (id, data) => brandsAPI.updateBrand(id, data),
             remove: (id) => brandsAPI.deleteBrand(id),
           }}
-          helperText="Brands help group products for search, purchasing, and reporting."
           descriptionPlaceholder="Optional short description for this brand"
+          sectionTitle={currentTitle}
+          sectionDescription={currentDescription}
         />
       );
     }
@@ -361,19 +356,20 @@ export default function OperationsPage() {
             update: (id, data) => categoriesAPI.updateCategory(id, data),
             remove: (id) => categoriesAPI.deleteCategory(id),
           }}
-          helperText="Categories keep the product catalog organized for stock and billing flows."
           descriptionPlaceholder="Optional short description for this category"
+          sectionTitle={currentTitle}
+          sectionDescription={currentDescription}
         />
       );
     }
 
     return (
       <div style={shellStyles.placeholderCard}>
-        This section is ready for the next build step. The first live Operations modules are
-        <strong> Brands </strong>
-        and
-        <strong> Categories</strong>
-        under Inventory, and we can build Products right after that.
+        <div style={{ display: 'grid', gap: 6, marginBottom: 16 }}>
+          <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em' }}>{currentTitle}</div>
+          <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.5, maxWidth: 860 }}>{currentDescription}</div>
+        </div>
+        This section is ready for the next build step. The first live Operations modules are <strong>Brands</strong> and <strong>Categories</strong> under Inventory, and we can build Products right after that.
       </div>
     );
   };
@@ -463,23 +459,30 @@ export default function OperationsPage() {
           </aside>
 
           <section style={shellStyles.content}>
-            <div style={shellStyles.compactHeader} className="operations-header-card">
-              <div style={{ fontSize: 28, fontWeight: 800, color: '#0f172a' }}>{currentTitle}</div>
-              <div style={{ marginTop: 8, fontSize: 15, color: '#475569', maxWidth: 760 }}>{currentDescription}</div>
-            </div>
-
             {renderContent()}
           </section>
         </div>
       </main>
 
       <style>{`
+        .operations-layout {
+          width: 100%;
+        }
+
+        .operations-sidebar button:focus,
+        .operations-sidebar button:focus-visible {
+          outline: none !important;
+          box-shadow: none !important;
+        }
+
         @media (max-width: 980px) {
           .operations-layout {
             grid-template-columns: 1fr !important;
           }
           .operations-sidebar {
             position: static !important;
+            min-height: auto !important;
+            width: 100% !important;
           }
         }
       `}</style>
