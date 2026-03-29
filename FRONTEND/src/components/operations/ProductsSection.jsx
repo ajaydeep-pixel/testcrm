@@ -135,6 +135,8 @@ export default function ProductsSection() {
   const [editingId, setEditingId] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeStep, setActiveStep] = useState('identity');
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState('');
   const {
     register,
     handleSubmit,
@@ -225,6 +227,11 @@ export default function ProductsSection() {
     reset(blank);
     setEditingId('');
     setActiveStep('identity');
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+    setImagePreviewUrl('');
+    setImageFile(null);
   };
 
   const closeModal = () => {
@@ -245,28 +252,20 @@ export default function ProductsSection() {
     }
   };
 
-  const onImageUpload = async (e) => {
+  const onImageUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type?.startsWith('image/')) {
       setError('Please select a valid image file');
       return;
     }
-    setSaving(true);
-    setError('');
-    try {
-      const res = await productsAPI.uploadProductImage(file);
-      const url = res.data?.absoluteUrl || res.data?.url || '';
-      if (!url) {
-        setError('Image upload failed');
-        return;
-      }
-      setValue('imageData', url, { shouldValidate: true, shouldDirty: true });
-    } catch (err) {
-      setError(err.response?.data?.message || 'Image upload failed');
-    } finally {
-      setSaving(false);
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
     }
+    const preview = URL.createObjectURL(file);
+    setImagePreviewUrl(preview);
+    setImageFile(file);
+    setError('');
   };
 
   const openEdit = (item) => {
@@ -299,6 +298,11 @@ export default function ProductsSection() {
       tagsText: joinCsv(item.tags),
       imageData: Array.isArray(item.images) && item.images.length ? item.images[0] : '',
     });
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+    setImagePreviewUrl('');
+    setImageFile(null);
     setError('');
     setActiveStep('identity');
     setIsModalOpen(true);
@@ -308,6 +312,15 @@ export default function ProductsSection() {
     setSaving(true);
     setError('');
     try {
+      let imageUrl = formValues.imageData || '';
+      if (imageFile) {
+        const res = await productsAPI.uploadProductImage(imageFile);
+        imageUrl = res.data?.absoluteUrl || res.data?.url || '';
+        if (!imageUrl) {
+          setError('Image upload failed');
+          return;
+        }
+      }
       const payload = {
         name: formValues.name.trim(),
         description: formValues.description.trim(),
@@ -333,7 +346,7 @@ export default function ProductsSection() {
         maxStock: Number(formValues.maxStock || 0),
         expiryDate: formValues.expiryDate || undefined,
         tags: splitCsv(formValues.tagsText),
-        images: formValues.imageData ? [formValues.imageData] : [],
+        images: imageUrl ? [imageUrl] : [],
       };
       if (!editingId) payload.inventoryStatus = { available: Number(formValues.availableStock || 0) };
       if (editingId) {
@@ -493,17 +506,29 @@ export default function ProductsSection() {
           <div className="text-lg font-extrabold text-slate-900">Details & Searchability</div>
           <div className="text-sm leading-6 text-slate-500">Add context that helps teams understand and find the product faster.</div>
         </div>
-        <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-3">
-          <Field label="Description / Notes" tip="Extra context to help staff understand the product." hint="Use this for internal clarity or customer-facing notes." fullSpan error={errors.description?.message}><textarea className="min-h-24 w-full resize-y rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('description')} placeholder="Product description / notes" /></Field>
-          <Field label="Tags" tip="Comma-separated keywords used for quick search and filtering." hint="Examples: premium, reusable, fast-moving." error={errors.tagsText?.message}><textarea className="min-h-24 w-full resize-y rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('tagsText')} placeholder="Tags / keywords, comma separated" /></Field>
-          <Field label="Product Image" tip="Upload one image to represent the product." hint="For now, only a single image upload is supported." error={errors.imageData?.message}>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-3.5">
+            <Field label="Description / Notes" tip="Extra context to help staff understand the product." hint="Use this for internal clarity or customer-facing notes." error={errors.description?.message}>
+              <textarea className="min-h-24 w-full resize-y rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('description')} placeholder="Product description / notes" />
+            </Field>
+            <Field label="Tags" tip="Comma-separated keywords used for quick search and filtering." hint="Examples: premium, reusable, fast-moving." error={errors.tagsText?.message}>
+              <textarea className="min-h-24 w-full resize-y rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('tagsText')} placeholder="Tags / keywords, comma separated" />
+            </Field>
+          </div>
+          <Field label="Product Image" tip="Upload one image to represent the product." hint="Image uploads on save; only a single image is supported." error={errors.imageData?.message}>
             <input type="hidden" {...register('imageData')} />
-            <div className="grid gap-3 rounded-[14px] border border-dashed border-slate-300 bg-slate-50 p-4">
+            <div className="grid min-h-[220px] gap-3 rounded-[14px] border border-dashed border-slate-300 bg-slate-50 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <input type="file" accept="image/*" className="max-w-full text-[13px] text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-blue-700" onChange={onImageUpload} disabled={saving} />
-                {form.imageData ? <button type="button" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-900" onClick={() => setValue('imageData', '', { shouldValidate: true, shouldDirty: true })}>Remove Image</button> : null}
+                {(imagePreviewUrl || form.imageData) ? <button type="button" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-900" onClick={() => { if (imagePreviewUrl) { URL.revokeObjectURL(imagePreviewUrl); } setImagePreviewUrl(''); setImageFile(null); setValue('imageData', '', { shouldValidate: true, shouldDirty: true }); }}>Remove Image</button> : null}
               </div>
-              {form.imageData ? <img src={resolveImageUrl(form.imageData)} alt="Product preview" className="h-[120px] w-[120px] rounded-[14px] border border-slate-300 bg-white object-cover" /> : <div className="text-sm leading-6 text-slate-500">{saving ? 'Uploading image...' : 'No image selected yet.'}</div>}
+              <div className="flex flex-1 items-center justify-center">
+                {(imagePreviewUrl || form.imageData) ? (
+                  <img src={imagePreviewUrl || resolveImageUrl(form.imageData)} alt="Product preview" className="h-[160px] w-[160px] rounded-[14px] border border-slate-300 bg-white object-cover" />
+                ) : (
+                  <div className="text-sm leading-6 text-slate-500">No image selected yet.</div>
+                )}
+              </div>
             </div>
           </Field>
         </div>

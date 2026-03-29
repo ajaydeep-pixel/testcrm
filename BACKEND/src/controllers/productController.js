@@ -2,6 +2,11 @@ const Product = require('../models/Product');
 const Brand = require('../models/Brand');
 const Category = require('../models/Category');
 const SubCategory = require('../models/SubCategory');
+const Inventory = require('../models/Inventory');
+const Sale = require('../models/Sale');
+const Purchase = require('../models/Purchase');
+const fs = require('fs');
+const path = require('path');
 const { logActivity } = require('../helpers/activityLogger');
 
 const escapeRegex = (input = '') => input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -30,6 +35,23 @@ const normalizeProduct = (doc) => {
     categoryName,
     subCategoryName
   };
+};
+
+const resolveUploadPath = (url) => {
+  if (!url || typeof url !== 'string') return null;
+  let pathname = url;
+  try {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      pathname = new URL(url).pathname;
+    }
+  } catch {
+    return null;
+  }
+  if (!pathname.startsWith('/uploads/')) return null;
+  const safePath = pathname.replace(/^\/+/, '');
+  const filePath = path.join(__dirname, '..', '..', safePath);
+  if (!filePath.includes(path.join('uploads', 'products'))) return null;
+  return filePath;
 };
 
 // List all products with optional query filter
@@ -178,6 +200,9 @@ exports.update = async (req, res) => {
     const tenantId = req.tenantId || req.user?.tenantId || null;
     const { brandId, categoryId, subCategoryId } = payload;
 
+    const existingProduct = await Product.findOne({ _id: req.params.id, $or: [{ tenantId }, { tenantId: null }] });
+    if (!existingProduct) return res.status(404).json({ message: 'Product not found' });
+
     if (brandId) {
       const brandDoc = await Brand.findOne({ _id: brandId, $or: [{ tenantId }, { tenantId: null }] });
       if (!brandDoc) return res.status(400).json({ message: 'Invalid brandId' });
@@ -209,6 +234,16 @@ exports.update = async (req, res) => {
       { new: true }
     ).populate(PRODUCT_POPULATE);
 
+    const oldImages = Array.isArray(existingProduct.images) ? existingProduct.images : [];
+    const newImages = Array.isArray(product?.images) ? product.images : [];
+    const removedImages = oldImages.filter((img) => img && !newImages.includes(img));
+
+    removedImages.forEach((img) => {
+      const filePath = resolveUploadPath(img);
+      if (!filePath) return;
+      fs.unlink(filePath, () => {});
+    });
+
     if (product) {
       await logActivity(req.user.userId || req.user.id, 'UPDATE_PRODUCT', `Updated product: ${product.name}`);
     }
@@ -237,7 +272,27 @@ exports.remove = async (req, res) => {
     const product = await Product.findOne({ _id: req.params.id, $or: [{ tenantId }, { tenantId: null }] });
     if (!product) return res.status(404).json({ message: 'Product not found' });
 
+    const [inventoryCount, saleCount, purchaseCount] = await Promise.all([
+      Inventory.countDocuments({ product: product._id }),
+      Sale.countDocuments({ 'items.product': product._id }),
+      Purchase.countDocuments({ 'items.product': product._id })
+    ]);
+
+    if (inventoryCount > 0 || saleCount > 0 || purchaseCount > 0) {
+      return res.status(400).json({
+        message: 'Cannot delete product. It is already used in inventory or billing records.'
+      });
+    }
+
     await Product.findOneAndDelete({ _id: req.params.id, $or: [{ tenantId }, { tenantId: null }] });
+
+    if (Array.isArray(product.images)) {
+      product.images.forEach((img) => {
+        const filePath = resolveUploadPath(img);
+        if (!filePath) return;
+        fs.unlink(filePath, () => {});
+      });
+    }
     
     await logActivity(req.user.userId || req.user.id, 'DELETE_PRODUCT', `Deleted product: ${product.name}`);
 
