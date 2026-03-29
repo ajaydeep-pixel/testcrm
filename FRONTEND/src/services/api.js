@@ -131,4 +131,11 @@ export const categoriesAPI = {
   deleteCategory: (id) => api.delete(`/categories/${id}`),
 };
 
+export const subcategoriesAPI = {
+  getSubcategories: (params = {}) => api.get('/subcategories', { params }),
+  createSubcategory: (data) => api.post('/subcategories', data),
+  updateSubcategory: (id, data) => api.put(`/subcategories/${id}`, data),
+  deleteSubcategory: (id) => api.delete(`/subcategories/${id}`),
+};
+
 export default api;

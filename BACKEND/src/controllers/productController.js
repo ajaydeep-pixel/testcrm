@@ -1,10 +1,15 @@
 const Product = require('../models/Product');
 const Brand = require('../models/Brand');
 const Category = require('../models/Category');
+const SubCategory = require('../models/SubCategory');
 const { logActivity } = require('../helpers/activityLogger');
 
 const escapeRegex = (input = '') => input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const PRODUCT_POPULATE = [{ path: 'brandId', select: 'name' }, { path: 'categoryId', select: 'name' }];
+const PRODUCT_POPULATE = [
+  { path: 'brandId', select: 'name' },
+  { path: 'categoryId', select: 'name' },
+  { path: 'subCategoryId', select: 'name' }
+];
 const buildTenantFilter = (tenantId, extra = {}) => ({
   ...extra,
   $or: [{ tenantId }, { tenantId: null }]
@@ -15,12 +20,15 @@ const normalizeProduct = (doc) => {
   const p = doc.toObject ? doc.toObject() : { ...doc };
   const brandName = p.brandId?.name || p.brand || '';
   const categoryName = p.categoryId?.name || p.category || '';
+  const subCategoryName = p.subCategoryId?.name || p.subCategory || '';
   return {
     ...p,
     brand: brandName,
     category: categoryName,
+    subCategory: subCategoryName,
     brandName,
-    categoryName
+    categoryName,
+    subCategoryName
   };
 };
 
@@ -46,6 +54,7 @@ exports.list = async (req, res) => {
             { brand: regex },
             { model: regex },
             { category: regex },
+            { subCategory: regex },
             { barcode: regex },
             { oemNumber: regex },
             { description: regex }
@@ -96,6 +105,7 @@ exports.search = async (req, res) => {
             { brand: regex },
             { model: regex },
             { category: regex },
+            { subCategory: regex },
             { barcode: regex },
             { oemNumber: regex },
             { description: regex }
@@ -117,7 +127,7 @@ exports.create = async (req, res) => {
   try {
     const payload = { ...req.body };
     const tenantId = req.tenantId || req.user?.tenantId || null;
-    const { brandId, categoryId } = payload;
+    const { brandId, categoryId, subCategoryId } = payload;
 
     if (!brandId || !categoryId) {
       return res.status(400).json({ message: 'brandId and categoryId are required' });
@@ -134,6 +144,19 @@ exports.create = async (req, res) => {
     payload.brand = brandDoc.name;
     payload.category = categoryDoc.name;
     payload.tenantId = tenantId;
+
+    if (subCategoryId) {
+      const subCategoryDoc = await SubCategory.findOne({ _id: subCategoryId, $or: [{ tenantId }, { tenantId: null }] });
+      if (!subCategoryDoc) return res.status(400).json({ message: 'Invalid subCategoryId' });
+      if (String(subCategoryDoc.categoryId) !== String(categoryId)) {
+        return res.status(400).json({ message: 'Subcategory does not belong to selected category' });
+      }
+      payload.subCategory = subCategoryDoc.name;
+      payload.subCategoryId = subCategoryDoc._id;
+    } else {
+      payload.subCategory = '';
+      payload.subCategoryId = undefined;
+    }
 
     const product = new Product(payload);
     await product.save();
@@ -153,7 +176,7 @@ exports.update = async (req, res) => {
   try {
     const payload = { ...req.body };
     const tenantId = req.tenantId || req.user?.tenantId || null;
-    const { brandId, categoryId } = payload;
+    const { brandId, categoryId, subCategoryId } = payload;
 
     if (brandId) {
       const brandDoc = await Brand.findOne({ _id: brandId, $or: [{ tenantId }, { tenantId: null }] });
@@ -165,6 +188,19 @@ exports.update = async (req, res) => {
       const categoryDoc = await Category.findOne({ _id: categoryId, $or: [{ tenantId }, { tenantId: null }] });
       if (!categoryDoc) return res.status(400).json({ message: 'Invalid categoryId' });
       payload.category = categoryDoc.name;
+    }
+
+    if (subCategoryId) {
+      const subCategoryDoc = await SubCategory.findOne({ _id: subCategoryId, $or: [{ tenantId }, { tenantId: null }] });
+      if (!subCategoryDoc) return res.status(400).json({ message: 'Invalid subCategoryId' });
+      if (categoryId && String(subCategoryDoc.categoryId) !== String(categoryId)) {
+        return res.status(400).json({ message: 'Subcategory does not belong to selected category' });
+      }
+      payload.subCategory = subCategoryDoc.name;
+      payload.subCategoryId = subCategoryDoc._id;
+    } else if (subCategoryId === '' || subCategoryId === null) {
+      payload.subCategory = '';
+      payload.subCategoryId = undefined;
     }
 
     const product = await Product.findOneAndUpdate(

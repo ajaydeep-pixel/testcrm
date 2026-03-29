@@ -59,6 +59,7 @@ app.use('/api/suppliers', verifyToken, extractTenant, verifyTenantAccess, rateLi
 app.use('/api/inventory', verifyToken, extractTenant, verifyTenantAccess, rateLimitTenant(), recordUsage, checkUsageAndWarn, require('./src/routes/inventoryRoutes'));
 app.use('/api/brands', verifyToken, extractTenant, verifyTenantAccess, rateLimitTenant(), recordUsage, checkUsageAndWarn, require('./src/routes/brandRoutes'));
 app.use('/api/categories', verifyToken, extractTenant, verifyTenantAccess, rateLimitTenant(), recordUsage, checkUsageAndWarn, require('./src/routes/categoryRoutes'));
+app.use('/api/subcategories', verifyToken, extractTenant, verifyTenantAccess, rateLimitTenant(), recordUsage, checkUsageAndWarn, require('./src/routes/subCategoryRoutes'));
 app.use('/api/customers', verifyToken, extractTenant, verifyTenantAccess, rateLimitTenant(), recordUsage, checkUsageAndWarn, require('./src/routes/customerRoutes'));
 
 app.get('/', (req, res) => res.send('Bike Parts Inventory API'));

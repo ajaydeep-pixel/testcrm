@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
-import { brandsAPI, categoriesAPI, productsAPI } from '../../services/api';
+import { brandsAPI, categoriesAPI, productsAPI, subcategoriesAPI } from '../../services/api';
 
 const steps = [
   ['identity', 'Identity', 'Name, category, references'],
@@ -18,7 +18,7 @@ const blank = {
   sku: '',
   brandId: '',
   categoryId: '',
-  subCategory: '',
+  subCategoryId: '',
   model: '',
   referenceCode: '',
   barcode: '',
@@ -35,7 +35,6 @@ const blank = {
   warrantyPeriod: '',
   minStock: '',
   maxStock: '',
-  storageLocation: '',
   availableStock: '',
   expiryDate: '',
   tagsText: '',
@@ -53,6 +52,7 @@ const schema = yup.object({
   name: yup.string().trim().required('Product name is required'),
   brandId: yup.string().trim().required('Brand is required'),
   categoryId: yup.string().trim().required('Category is required'),
+  subCategoryId: yup.string().nullable(),
   sellingPrice: numericField('Selling price').required('Selling price is required'),
   purchasePrice: numericField('Purchase price').required('Purchase price is required'),
   mrp: numericField('MRP').nullable(),
@@ -66,9 +66,9 @@ const schema = yup.object({
 });
 
 const stepFields = {
-  identity: ['name', 'brandId', 'categoryId', 'sku', 'subCategory', 'model', 'referenceCode', 'barcode', 'unitOfMeasure'],
+  identity: ['name', 'brandId', 'categoryId', 'subCategoryId', 'sku', 'model', 'referenceCode', 'barcode', 'unitOfMeasure'],
   pricing: ['sellingPrice', 'purchasePrice', 'mrp', 'discountPercent', 'maxDiscountPercent', 'gstPercent', 'hsnCode', 'taxType'],
-  inventory: ['minStock', 'maxStock', 'storageLocation', 'expiryDate', 'status', 'warrantyPeriod', 'availableStock'],
+  inventory: ['minStock', 'maxStock', 'expiryDate', 'status', 'warrantyPeriod', 'availableStock'],
   details: ['description', 'tagsText', 'imageData'],
 };
 
@@ -115,6 +115,7 @@ export default function ProductsSection() {
   const [items, setItems] = useState([]);
   const [brands, setBrands] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [subcategories, setSubcategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [mastersLoading, setMastersLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -140,6 +141,7 @@ export default function ProductsSection() {
     defaultValues: blank,
   });
   const form = watch();
+  const selectedCategoryId = form.categoryId;
 
   const loadMasters = async () => {
     setMastersLoading(true);
@@ -156,6 +158,7 @@ export default function ProductsSection() {
       setMastersLoading(false);
     }
   };
+
 
   const loadItems = async ({ search = appliedQuery, nextPage = page, nextLimit = limit } = {}) => {
     setLoading(true);
@@ -183,6 +186,33 @@ export default function ProductsSection() {
     loadMasters();
     loadItems({ search: '', nextPage: 1, nextLimit: 10 });
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    const sync = async () => {
+      if (!selectedCategoryId) {
+        setSubcategories([]);
+        setValue('subCategoryId', '');
+        return;
+      }
+      try {
+        const res = await subcategoriesAPI.getSubcategories({ page: 1, limit: 200, categoryId: selectedCategoryId });
+        const data = res.data || {};
+        const items = Array.isArray(data.items) ? data.items : [];
+        if (!active) return;
+        setSubcategories(items);
+        if (!items.some((item) => item._id === form.subCategoryId)) {
+          setValue('subCategoryId', '');
+        }
+      } catch {
+        if (active) setSubcategories([]);
+      }
+    };
+    sync();
+    return () => {
+      active = false;
+    };
+  }, [selectedCategoryId]);
 
   const resetForm = () => {
     reset(blank);
@@ -231,7 +261,7 @@ export default function ProductsSection() {
       sku: item.sku || '',
       brandId: item.brandId?._id || '',
       categoryId: item.categoryId?._id || '',
-      subCategory: item.subCategory || '',
+      subCategoryId: item.subCategoryId?._id || item.subCategoryId || '',
       model: item.model || '',
       referenceCode: item.oemNumber || '',
       barcode: item.barcode || '',
@@ -248,7 +278,6 @@ export default function ProductsSection() {
       warrantyPeriod: item.warrantyPeriod || '',
       minStock: item.minStock ?? '',
       maxStock: item.maxStock ?? '',
-      storageLocation: item.stockLocation || '',
       availableStock: item.inventoryStatus?.available ?? '',
       expiryDate: item.expiryDate ? String(item.expiryDate).slice(0, 10) : '',
       tagsText: joinCsv(item.tags),
@@ -269,7 +298,7 @@ export default function ProductsSection() {
         sku: formValues.sku.trim(),
         brandId: formValues.brandId,
         categoryId: formValues.categoryId,
-        subCategory: formValues.subCategory.trim(),
+        subCategoryId: formValues.subCategoryId || undefined,
         model: formValues.model.trim(),
         oemNumber: formValues.referenceCode.trim(),
         barcode: formValues.barcode.trim(),
@@ -286,7 +315,6 @@ export default function ProductsSection() {
         warrantyPeriod: formValues.warrantyPeriod.trim(),
         minStock: Number(formValues.minStock || 0),
         maxStock: Number(formValues.maxStock || 0),
-        stockLocation: formValues.storageLocation.trim(),
         expiryDate: formValues.expiryDate || undefined,
         tags: splitCsv(formValues.tagsText),
         images: formValues.imageData ? [formValues.imageData] : [],
@@ -345,6 +373,7 @@ export default function ProductsSection() {
       return;
     }
     setError('');
+    if (stepIndex >= steps.length - 1) return;
     setActiveStep(steps[stepIndex + 1][0]);
   };
 
@@ -377,8 +406,13 @@ export default function ProductsSection() {
             <Field label="Category" tip="Primary grouping used in catalog organization." hint="Pick the main category for this item." error={errors.categoryId?.message}>
               <select className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('categoryId')} disabled={mastersLoading}><option value="">Select category *</option>{categories.map((x) => <option key={x._id} value={x._id}>{x.name}</option>)}</select>
             </Field>
-            <Field label="Sub-category" tip="Secondary grouping inside a category." hint="Useful for deeper catalog structure." error={errors.subCategory?.message}>
-              <input className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('subCategory')} placeholder="Sub-category" />
+            <Field label="Subcategory" tip="Secondary grouping inside a category." hint="Select a subcategory after choosing a category." error={errors.subCategoryId?.message}>
+              <select className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('subCategoryId')} disabled={!selectedCategoryId}>
+                <option value="">{selectedCategoryId ? 'Select subcategory' : 'Select category first'}</option>
+                {subcategories.map((item) => (
+                  <option key={item._id} value={item._id}>{item.name}</option>
+                ))}
+              </select>
             </Field>
             <Field label="Model / Variant" tip="Secondary identifier such as model or size." hint="Works across retail, service, and distribution businesses." error={errors.model?.message}>
               <input className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('model')} placeholder="Model / variant" />
@@ -428,11 +462,10 @@ export default function ProductsSection() {
           <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-3">
             <Field label="Minimum Stock" tip="Threshold used for low-stock alerts." hint="Set to zero if alerts are not needed." error={errors.minStock?.message}><input className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('minStock')} placeholder="Minimum stock" type="number" min="0" /></Field>
             <Field label="Maximum Stock" tip="Optional upper planning limit for this item." hint="Helpful for storage-sensitive businesses." error={errors.maxStock?.message}><input className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('maxStock')} placeholder="Maximum stock" type="number" min="0" /></Field>
-            <Field label="Storage Location" tip="Shelf, rack, bin, or storage reference." hint="Use a neutral location name that works across businesses." error={errors.storageLocation?.message}><input className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('storageLocation')} placeholder="Storage location" /></Field>
             <Field label="Expiry Date" tip="Useful for perishable or regulated items." hint="Optional; leave blank if not relevant." error={errors.expiryDate?.message}><input className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('expiryDate')} type="date" /></Field>
             <Field label="Status" tip="Controls whether the product is available in active workflows." hint="Inactive items remain in history but can be hidden." error={errors.status?.message}><select className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('status')}><option value="active">Active</option><option value="inactive">Inactive</option></select></Field>
             <Field label="Warranty Period" tip="Support or service duration offered with the item." hint="Examples: no warranty, 6 months, 1 year." error={errors.warrantyPeriod?.message}><input className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('warrantyPeriod')} placeholder="Warranty period" /></Field>
-            <Field label="Opening Stock" tip="Starting available quantity when creating a new item." hint={editingId ? 'Existing products should be adjusted through stock workflows.' : 'Only used when creating a new record.'} fullSpan error={errors.availableStock?.message}><input className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-400" {...register('availableStock')} placeholder={editingId ? 'Opening stock managed elsewhere' : 'Initial stock'} type="number" min="0" disabled={!!editingId} /></Field>
+            <Field label="Opening Stock" tip="Starting available quantity when creating a new item." hint={editingId ? 'Existing products should be adjusted through stock workflows.' : 'Only used when creating a new record.'} error={errors.availableStock?.message}><input className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-400" {...register('availableStock')} placeholder={editingId ? 'Opening stock managed elsewhere' : 'Initial stock'} type="number" min="0" disabled={!!editingId} /></Field>
           </div>
         </>
       );
@@ -446,8 +479,8 @@ export default function ProductsSection() {
         </div>
         <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-3">
           <Field label="Description / Notes" tip="Extra context to help staff understand the product." hint="Use this for internal clarity or customer-facing notes." fullSpan error={errors.description?.message}><textarea className="min-h-24 w-full resize-y rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('description')} placeholder="Product description / notes" /></Field>
-          <Field label="Tags" tip="Comma-separated keywords used for quick search and filtering." hint="Examples: premium, reusable, fast-moving." fullSpan error={errors.tagsText?.message}><textarea className="min-h-24 w-full resize-y rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('tagsText')} placeholder="Tags / keywords, comma separated" /></Field>
-          <Field label="Product Image" tip="Upload one image to represent the product." hint="For now, only a single image upload is supported." fullSpan error={errors.imageData?.message}>
+          <Field label="Tags" tip="Comma-separated keywords used for quick search and filtering." hint="Examples: premium, reusable, fast-moving." error={errors.tagsText?.message}><textarea className="min-h-24 w-full resize-y rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('tagsText')} placeholder="Tags / keywords, comma separated" /></Field>
+          <Field label="Product Image" tip="Upload one image to represent the product." hint="For now, only a single image upload is supported." error={errors.imageData?.message}>
             <div className="grid gap-3 rounded-[14px] border border-dashed border-slate-300 bg-slate-50 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <input type="file" accept="image/*" className="max-w-full text-[13px] text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-blue-700" onChange={onImageUpload} />
@@ -566,7 +599,7 @@ export default function ProductsSection() {
                   <div className="flex flex-wrap gap-2.5"><button type="button" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-900" onClick={closeModal}>Cancel</button></div>
                   <div className="flex flex-wrap gap-2.5">
                     <button type="button" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400" onClick={() => setActiveStep(steps[Math.max(stepIndex - 1, 0)][0])} disabled={stepIndex === 0}>Back</button>
-                    {stepIndex < steps.length - 1 ? <button type="button" className="rounded-xl border border-blue-600 bg-blue-600 px-4 py-2.5 text-sm font-bold text-white" onClick={goNext}>Next</button> : <button type="submit" className="rounded-xl border border-blue-600 bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:border-blue-300 disabled:bg-blue-300" disabled={saving || mastersLoading}>{editingId ? 'Save Changes' : 'Add Product'}</button>}
+                    {stepIndex < steps.length - 1 ? <button type="button" className="rounded-xl border border-blue-600 bg-blue-600 px-4 py-2.5 text-sm font-bold text-white" onClick={(e) => { e.preventDefault(); e.stopPropagation(); goNext(); }}>Next</button> : <button type="submit" className="rounded-xl border border-blue-600 bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:border-blue-300 disabled:bg-blue-300" disabled={saving || mastersLoading}>{editingId ? 'Save Changes' : 'Add Product'}</button>}
                   </div>
                 </div>
               </form>

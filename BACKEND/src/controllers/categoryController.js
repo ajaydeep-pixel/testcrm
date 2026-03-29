@@ -1,5 +1,6 @@
 const Category = require('../models/Category');
 const Product = require('../models/Product');
+const SubCategory = require('../models/SubCategory');
 const { logActivity } = require('../helpers/activityLogger');
 
 const escapeRegex = (input = '') => input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -90,6 +91,10 @@ exports.remove = async (req, res) => {
     const inUse = await Product.countDocuments({ categoryId: req.params.id });
     if (inUse > 0) {
       return res.status(400).json({ message: `Cannot delete category. ${inUse} product(s) are linked.` });
+    }
+    const subCount = await SubCategory.countDocuments({ categoryId: req.params.id, $or: [{ tenantId }, { tenantId: null }] });
+    if (subCount > 0) {
+      return res.status(400).json({ message: `Cannot delete category. ${subCount} subcategory(ies) are linked.` });
     }
 
     const category = await Category.findOneAndDelete({ _id: req.params.id, tenantId });

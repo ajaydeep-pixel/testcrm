@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import TenantCommonHeader from '../components/TenantCommonHeader';
 import SuperadminReturnBar from '../components/SuperadminReturnBar';
 import ProductsSection from '../components/operations/ProductsSection';
+import SubcategoriesSection from '../components/operations/SubcategoriesSection';
 import SimpleMasterSection from '../components/operations/SimpleMasterSection';
 import { brandsAPI, categoriesAPI } from '../services/api';
 
@@ -63,6 +64,12 @@ function SidebarIcon({ kind, active = false }) {
     categories: (
       <>
         <path d="M4 7h7v7H4zM13 7h7v4h-7zM13 13h7v7h-7z" />
+      </>
+    ),
+    subcategories: (
+      <>
+        <path d="M4 7h7v7H4zM13 7h7v7h-7z" />
+        <path d="M4 16h16" />
       </>
     ),
     brands: (
@@ -135,6 +142,7 @@ const operationSections = [
     children: [
       { key: 'products', label: 'Products', description: 'Catalog and product definitions.' },
       { key: 'categories', label: 'Categories', description: 'Organize products by category.' },
+      { key: 'subcategories', label: 'Subcategories', description: 'Create subcategories under each category.' },
       { key: 'brands', label: 'Brands', description: 'Manage product brands and labels.' },
       { key: 'stock', label: 'Stock', description: 'Monitor quantities and stock movement.' },
     ],
@@ -362,6 +370,15 @@ export default function OperationsPage() {
             remove: (id) => categoriesAPI.deleteCategory(id),
           }}
           descriptionPlaceholder="Optional short description for this category"
+          sectionTitle={currentTitle}
+          sectionDescription={currentDescription}
+        />
+      );
+    }
+
+    if (section.key === 'inventory' && inventoryChild?.key === 'subcategories') {
+      return (
+        <SubcategoriesSection
           sectionTitle={currentTitle}
           sectionDescription={currentDescription}
         />
