@@ -238,19 +238,28 @@ export default function ProductsSection() {
     }
   };
 
-  const onImageUpload = (e) => {
+  const onImageUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type?.startsWith('image/')) {
       setError('Please select a valid image file');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setValue('imageData', typeof reader.result === 'string' ? reader.result : '', { shouldValidate: true, shouldDirty: true });
-      setError('');
-    };
-    reader.readAsDataURL(file);
+    setSaving(true);
+    setError('');
+    try {
+      const res = await productsAPI.uploadProductImage(file);
+      const url = res.data?.url || '';
+      if (!url) {
+        setError('Image upload failed');
+        return;
+      }
+      setValue('imageData', url, { shouldValidate: true, shouldDirty: true });
+    } catch (err) {
+      setError(err.response?.data?.message || 'Image upload failed');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const openEdit = (item) => {
@@ -483,10 +492,10 @@ export default function ProductsSection() {
           <Field label="Product Image" tip="Upload one image to represent the product." hint="For now, only a single image upload is supported." error={errors.imageData?.message}>
             <div className="grid gap-3 rounded-[14px] border border-dashed border-slate-300 bg-slate-50 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <input type="file" accept="image/*" className="max-w-full text-[13px] text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-blue-700" onChange={onImageUpload} />
+                <input type="file" accept="image/*" className="max-w-full text-[13px] text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-blue-700" onChange={onImageUpload} disabled={saving} />
                 {form.imageData ? <button type="button" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-900" onClick={() => setValue('imageData', '', { shouldValidate: true, shouldDirty: true })}>Remove Image</button> : null}
               </div>
-              {form.imageData ? <img src={form.imageData} alt="Product preview" className="h-[120px] w-[120px] rounded-[14px] border border-slate-300 bg-white object-cover" /> : <div className="text-sm leading-6 text-slate-500">No image selected yet.</div>}
+              {form.imageData ? <img src={form.imageData} alt="Product preview" className="h-[120px] w-[120px] rounded-[14px] border border-slate-300 bg-white object-cover" /> : <div className="text-sm leading-6 text-slate-500">{saving ? 'Uploading image...' : 'No image selected yet.'}</div>}
             </div>
           </Field>
         </div>

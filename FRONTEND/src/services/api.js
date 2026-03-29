@@ -95,6 +95,13 @@ export const productsAPI = {
   updateProduct: (id, data) => api.put(`/products/${id}`, data),
   deleteProduct: (id) => api.delete(`/products/${id}`),
   searchProducts: (query) => api.get('/products/search', { params: { q: query } }),
+  uploadProductImage: (file) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    return api.post('/products/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
 };
 
 // Sales API
