@@ -327,11 +327,13 @@ export default function SimpleMasterSection({
     try {
       if (editingId) {
         await api.update(editingId, { name, description });
+        loadItems({ search: appliedQuery, nextPage: page, nextLimit: limit });
       } else {
         await api.create({ name, description });
+        setPage(1);
+        loadItems({ search: appliedQuery, nextPage: 1, nextLimit: limit });
       }
       closeModal();
-      loadItems({ search: appliedQuery, nextPage: page, nextLimit: limit });
     } catch (err) {
       setError(err.response?.data?.message || `Failed to save ${noun.toLowerCase()}`);
     } finally {

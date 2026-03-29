@@ -22,7 +22,7 @@ exports.list = async (req, res) => {
     }
 
     const [items, total] = await Promise.all([
-      Category.find(filter).sort({ name: 1 }).skip(skip).limit(limit),
+      Category.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit),
       Category.countDocuments(filter)
     ]);
 

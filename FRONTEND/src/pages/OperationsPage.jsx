@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import TenantCommonHeader from '../components/TenantCommonHeader';
 import SuperadminReturnBar from '../components/SuperadminReturnBar';
+import ProductsSection from '../components/operations/ProductsSection';
 import SimpleMasterSection from '../components/operations/SimpleMasterSection';
 import { brandsAPI, categoriesAPI } from '../services/api';
 
@@ -327,6 +328,10 @@ export default function OperationsPage() {
   };
 
   const renderContent = () => {
+    if (section.key === 'inventory' && inventoryChild?.key === 'products') {
+      return <ProductsSection />;
+    }
+
     if (section.key === 'inventory' && inventoryChild?.key === 'brands') {
       return (
         <SimpleMasterSection

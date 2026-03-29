@@ -89,8 +89,8 @@ export const settingsAPI = {
 
 // Products API
 export const productsAPI = {
-  getProducts: (page = 1, limit = 20) => 
-    api.get('/products', { params: { page, limit } }),
+  getProducts: (page = 1, limit = 20, q = '') => 
+    api.get('/products', { params: { page, limit, q } }),
   createProduct: (data) => api.post('/products', data),
   updateProduct: (id, data) => api.put(`/products/${id}`, data),
   deleteProduct: (id) => api.delete(`/products/${id}`),
