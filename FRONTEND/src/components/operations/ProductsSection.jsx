@@ -110,6 +110,13 @@ function Field({ label, tip, hint, children, fullSpan = false, error }) {
 const money = (v) => Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const splitCsv = (v = '') => v.split(',').map((x) => x.trim()).filter(Boolean);
 const joinCsv = (v = []) => (Array.isArray(v) ? v.join(', ') : '');
+const apiOrigin = (process.env.REACT_APP_API_URL || 'http://localhost:4000/api').replace(/\/api\/?$/, '');
+const resolveImageUrl = (url = '') => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  if (url.startsWith('/uploads/')) return `${apiOrigin}${url}`;
+  return url;
+};
 
 export default function ProductsSection() {
   const [items, setItems] = useState([]);
@@ -249,7 +256,7 @@ export default function ProductsSection() {
     setError('');
     try {
       const res = await productsAPI.uploadProductImage(file);
-      const url = res.data?.url || '';
+      const url = res.data?.absoluteUrl || res.data?.url || '';
       if (!url) {
         setError('Image upload failed');
         return;
@@ -490,12 +497,13 @@ export default function ProductsSection() {
           <Field label="Description / Notes" tip="Extra context to help staff understand the product." hint="Use this for internal clarity or customer-facing notes." fullSpan error={errors.description?.message}><textarea className="min-h-24 w-full resize-y rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('description')} placeholder="Product description / notes" /></Field>
           <Field label="Tags" tip="Comma-separated keywords used for quick search and filtering." hint="Examples: premium, reusable, fast-moving." error={errors.tagsText?.message}><textarea className="min-h-24 w-full resize-y rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm text-slate-900" {...register('tagsText')} placeholder="Tags / keywords, comma separated" /></Field>
           <Field label="Product Image" tip="Upload one image to represent the product." hint="For now, only a single image upload is supported." error={errors.imageData?.message}>
+            <input type="hidden" {...register('imageData')} />
             <div className="grid gap-3 rounded-[14px] border border-dashed border-slate-300 bg-slate-50 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <input type="file" accept="image/*" className="max-w-full text-[13px] text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-blue-700" onChange={onImageUpload} disabled={saving} />
                 {form.imageData ? <button type="button" className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-900" onClick={() => setValue('imageData', '', { shouldValidate: true, shouldDirty: true })}>Remove Image</button> : null}
               </div>
-              {form.imageData ? <img src={form.imageData} alt="Product preview" className="h-[120px] w-[120px] rounded-[14px] border border-slate-300 bg-white object-cover" /> : <div className="text-sm leading-6 text-slate-500">{saving ? 'Uploading image...' : 'No image selected yet.'}</div>}
+              {form.imageData ? <img src={resolveImageUrl(form.imageData)} alt="Product preview" className="h-[120px] w-[120px] rounded-[14px] border border-slate-300 bg-white object-cover" /> : <div className="text-sm leading-6 text-slate-500">{saving ? 'Uploading image...' : 'No image selected yet.'}</div>}
             </div>
           </Field>
         </div>
@@ -535,7 +543,7 @@ export default function ProductsSection() {
             <table className="w-full border-collapse">
               <thead>
                 <tr>
-                  {['Name', 'SKU', 'Brand', 'Category', 'Stock', 'Selling', 'MRP', 'Tax', 'Status', 'Actions'].map((heading) => (
+                  {['Image', 'Name', 'SKU', 'Brand', 'Category', 'Stock', 'Selling', 'MRP', 'Tax', 'Status', 'Actions'].map((heading) => (
                     <th key={heading} className="border-b border-slate-200 bg-slate-50 px-3.5 py-3 text-left text-xs font-bold uppercase tracking-[0.05em] text-slate-500">
                       {heading}
                     </th>
@@ -545,13 +553,28 @@ export default function ProductsSection() {
               <tbody>
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan="10" className="px-7 py-8 text-center text-sm text-slate-500">
+                    <td colSpan="11" className="px-7 py-8 text-center text-sm text-slate-500">
                       No products found yet.
                     </td>
                   </tr>
                 ) : (
                   items.map((item) => (
                     <tr key={item._id}>
+                      <td className="border-b border-slate-100 px-3.5 py-3.5 align-top text-sm text-slate-900">
+                        {(() => {
+                          const imageValue = Array.isArray(item.images) ? item.images[0] : item.images;
+                          const resolved = resolveImageUrl(imageValue || '');
+                          return resolved ? (
+                            <img
+                              src={resolved}
+                              alt={item.name || 'Product'}
+                              className="h-10 w-10 rounded-lg border border-slate-200 object-cover"
+                            />
+                          ) : (
+                            <div className="h-10 w-10 rounded-lg border border-dashed border-slate-200 bg-slate-50" />
+                          );
+                        })()}
+                      </td>
                       <td className="border-b border-slate-100 px-3.5 py-3.5 align-top text-sm text-slate-900">
                         <div className="grid gap-1">
                           <div className="font-bold">{item.name || '--'}</div>

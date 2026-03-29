@@ -47,7 +47,8 @@ router.post('/upload', upload.single('image'), (req, res) => {
     if (!req.file) return res.status(400).json({ message: 'No image uploaded' });
     const userId = req.user?.userId || req.user?.id || 'unknown';
     const url = `/uploads/products/${userId}/${req.file.filename}`;
-    res.json({ url });
+    const absoluteUrl = `${req.protocol}://${req.get('host')}${url}`;
+    res.json({ url, absoluteUrl });
   } catch (err) {
     res.status(400).json({ message: 'Image upload failed' });
   }
